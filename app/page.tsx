@@ -12,10 +12,11 @@ const initialTickets = [
 
 const nav = [
   ["▦", "營運總覽"], ["✦", "AI 資訊報修"], ["▤", "我的工單"],
-  ["▥", "設備與服務"], ["♢", "資安監控"], ["♙", "權限管理"], ["⚙", "系統設定"],
+  ["▥", "設備與服務"], ["♢", "資安監控"], ["◫", "服務治理"],
+  ["♙", "權限管理"], ["⚙", "系統設定"],
 ];
 
-const modules = ["營運總覽", "AI 資訊報修", "工單管理", "設備與服務", "資安監控", "權限管理", "系統設定"];
+const modules = ["營運總覽", "AI 資訊報修", "工單管理", "設備與服務", "資安監控", "服務治理", "權限管理", "系統設定"];
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`toggle ${checked ? "on" : ""}`} onClick={onChange}><span /></button>;
@@ -89,6 +90,43 @@ function SettingsConsole() {
 function SettingRow({title,note,value,onChange}:{title:string;note:string;value:boolean;onChange:()=>void}) { return <div><span><b>{title}</b><small>{note}</small></span><Toggle label={title} checked={value} onChange={onChange}/></div> }
 
 type TestState = "待測試" | "測試中" | "通過";
+
+function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, body:string) => void; onEmailTicket: () => void }) {
+  const [tab, setTab] = useState("SLA 與派工");
+  const [toast, setToast] = useState("");
+  const flash = (message:string) => { setToast(message); window.setTimeout(() => setToast(""), 2300); };
+  const tabs = ["SLA 與派工", "AI 覆核", "知識庫", "重大事件", "服務評價"];
+  const sla = [
+    ["P1 緊急", "15 分鐘", "2 小時", "重大資安事件、全公司服務中斷"],
+    ["P2 高", "30 分鐘", "4 小時", "多位使用者或部門服務中斷"],
+    ["P3 一般", "4 小時", "1 工作日", "單一使用者一般軟硬體問題"],
+    ["P4 低", "1 工作日", "3 工作日", "設備申請、軟體安裝與改善建議"],
+  ];
+  const reviews = [
+    ["INC-20260725-003", "疑似釣魚郵件要求重設密碼", "96%", "高風險・資安值班"],
+    ["INC-20260725-001", "Outlook 無法收信且顯示同步錯誤", "82%", "P2・系統維運組"],
+    ["INC-20260725-006", "VPN 登入後無法進入 ERP", "78%", "待人工確認"],
+  ];
+  const knowledge = [
+    ["Outlook 同步錯誤排查 SOP", "已發布", "使用 42 次・解決成功率 86%"],
+    ["VPN 已連線但內部系統不可達", "審核中", "由工單轉為知識草稿"],
+    ["釣魚郵件通報與隔離流程", "已發布", "下次複核 2026/08/15"],
+  ];
+  const incidents = [
+    ["Microsoft 365 收信延遲", "候選重大事件", "已關聯 7 張相似工單，影響財務、業務與採購部。"],
+    ["總部三樓 Wi-Fi 不穩", "監控中", "近 2 小時新增 4 張工單，建議通知網路組。"],
+  ];
+  return <section className="management-console governance">
+    <div className="page-heading"><div><span className="eyebrow">IT SERVICE GOVERNANCE</span><h2>服務治理中心</h2><p>統一管理 SLA、AI 覆核、知識庫、重大事件與服務品質。</p></div><div className="toolbar"><button className="secondary" onClick={onEmailTicket}>✉ 模擬 Email 建單</button><button className="primary" onClick={() => flash("治理規則檢查完成，未發現衝突")}>執行治理檢查</button></div></div>
+    <nav className="governance-tabs card">{tabs.map(x => <button key={x} className={tab === x ? "active" : ""} onClick={() => setTab(x)}>{x}</button>)}</nav>
+    {tab === "SLA 與派工" && <div className="governance-grid">{sla.map(([level,response,target,scope]) => <article className="card governance-card" key={level}><span className={`governance-level ${level.slice(0,2).toLowerCase()}`}>{level}</span><dl><div><dt>首次回應</dt><dd>{response}</dd></div><div><dt>處理目標</dt><dd>{target}</dd></div></dl><p>{scope}</p><button className="secondary" onClick={() => onOpen(`${level} SLA 政策`, `首次回應 ${response}，處理目標 ${target}。適用範圍：${scope}。`)}>檢視與調整</button></article>)}</div>}
+    {tab === "AI 覆核" && <div className="card governance-list"><div className="card-head"><div><h3>人工覆核佇列</h3><p>低信心、P1/P2 與高風險事件必須人工確認</p></div><span className="queue-count">{reviews.length} 件待處理</span></div>{reviews.map(([id,title,confidence,meta]) => <button key={id} onClick={() => onOpen(id, `${title}。AI 信心 ${confidence}，判定結果：${meta}。請確認分類、優先度及派工對象。`)}><span><b>{id}</b><small>{title}</small></span><em>{confidence}</em><i>{meta}</i><strong>覆核 ›</strong></button>)}</div>}
+    {tab === "知識庫" && <div className="card governance-list"><div className="card-head"><div><h3>知識庫治理</h3><p>以解決成功率與複核日期維持內容品質</p></div><button className="primary" onClick={() => flash("已建立新的知識文章草稿")}>新增文章</button></div>{knowledge.map(([title,status,meta]) => <button key={title} onClick={() => onOpen(title, `${status}。${meta}。可在正式串接後編輯內容、送審或發布。`)}><span><b>{title}</b><small>{meta}</small></span><i className={status === "已發布" ? "good" : ""}>{status}</i><strong>管理 ›</strong></button>)}</div>}
+    {tab === "重大事件" && <div className="governance-grid incidents">{incidents.map(([title,status,body]) => <article className="card governance-card" key={title}><span className="governance-level p2">{status}</span><h3>{title}</h3><p>{body}</p><div className="card-actions"><button className="secondary" onClick={() => onOpen(title, body)}>檢視關聯工單</button><button className="primary" onClick={() => flash(`${title} 已通知主管確認`)}>通知主管</button></div></article>)}</div>}
+    {tab === "服務評價" && <div className="survey-dashboard"><div className="module-summary"><article className="card"><span>系統使用滿意度</span><b>4.4 / 5</b><small>填答率 64%・NPS 42</small></article><article className="card"><span>IT 服務滿意度</span><b>4.6 / 5</b><small>一次解決率 78%</small></article><article className="card"><span>低分待追蹤</span><b>3 件</b><small>2 件已建立改善事項</small></article></div><div className="card survey-form"><h3>結案服務評價</h3><p>模擬使用者完成工單後的服務品質回饋。</p><label>處理速度<input type="range" min="1" max="5" defaultValue="5" /></label><label>問題解決能力<input type="range" min="1" max="5" defaultValue="4" /></label><label>其他建議<textarea defaultValue="工程師說明清楚，處理速度很快。" /></label><button className="primary" onClick={() => flash("服務評價已送出並納入統計")}>送出評價</button></div></div>}
+    {toast && <div className="toast">✓ {toast}</div>}
+  </section>;
+}
 
 function ModuleConsole({ module, tickets, onOpen }: { module: string; tickets: string[][]; onOpen: (title:string, body:string) => void }) {
   const [filter, setFilter] = useState("全部");
@@ -186,6 +224,13 @@ export default function Home() {
     setDiagnosis(true);
   }
   function flash(message:string) { setToast(message); window.setTimeout(() => setToast(""), 2400); }
+  function simulateEmailTicket() {
+    const id = `INC-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(124 + tickets.length).padStart(4,"0")}`;
+    const row = [id, "Email 自動建單：Outlook 郵件同步異常", "財務部 王小姐", "Email 自動建單", "高", new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}), "系統維運組"];
+    setTickets([row, ...tickets]);
+    setNoticeCount(x => x + 1);
+    flash(`已擷取報修信箱郵件並建立工單 ${id}`);
+  }
   function createTicket() {
     const id = `INC-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(124 + tickets.length).padStart(4,"0")}`;
     const row = [id, issue.trim(), requester, formMode ? "表單報修" : "AI 報修", aiResult.priority, new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}), aiResult.team];
@@ -215,6 +260,7 @@ export default function Home() {
         <div className={`dashboard ${active !== "營運總覽" ? "admin-mode" : ""}`}>
           {active === "權限管理" && <PermissionConsole />}
           {active === "系統設定" && <SettingsConsole />}
+          {active === "服務治理" && <GovernanceConsole onOpen={(title,body)=>setDetail({title,body})} onEmailTicket={simulateEmailTicket} />}
           {["我的工單","設備與服務","資安監控"].includes(active) && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})}/>}
           <section className="ai-card card">
             <div className="ai-copy"><span className="eyebrow">AI SERVICE DESK</span><h2>用一句話，讓 AI 幫你報修</h2><p>描述問題，AI 將自動分類、判斷優先級並指派負責人</p>
