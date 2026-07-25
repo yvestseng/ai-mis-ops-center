@@ -223,7 +223,55 @@ function ModuleConsole({ module, tickets, onOpen }: { module: string; tickets: s
   </section>;
 }
 
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
+  const [account, setAccount] = useState("TW_YVES");
+  const [password, setPassword] = useState("MIS2026!");
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (account.trim().toLowerCase() !== "tw_yves" || password !== "MIS2026!") {
+      setError("帳號或密碼不正確，請使用畫面下方的測試帳號。");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    window.setTimeout(() => {
+      const storage = remember ? window.localStorage : window.sessionStorage;
+      storage.setItem("mis-authenticated", "true");
+      onLogin();
+    }, 450);
+  }
+
+  return <main className="login-page">
+    <section className="login-intro">
+      <div className="login-brand"><span className="brandmark">A</span><span><strong>AI 資訊報修</strong><small>MIS 維運／資安監控中心</small></span></div>
+      <div className="login-message"><span className="login-kicker">ENTERPRISE IT OPERATIONS</span><h1>讓資訊服務更快速，<br/>讓資安風險更透明。</h1><p>整合 AI 報修、工單治理、設備服務與資安監控，協助 MIS 團隊集中掌握企業資訊營運狀態。</p>
+        <div className="login-features"><span>✦ AI 智慧分類與派工</span><span>▣ ITSM 與 SLA 管理</span><span>♢ 資安事件即時監控</span></div>
+      </div>
+      <p className="login-copyright">© 2026 AI MIS Operations Center</p>
+    </section>
+    <section className="login-panel">
+      <form className="login-card" onSubmit={submit}>
+        <span className="login-shield">✓</span>
+        <div><span className="eyebrow">SECURE ACCESS</span><h2>登入系統</h2><p>請輸入您的企業帳號以繼續</p></div>
+        <label>使用者帳號<div className="login-input"><span>♙</span><input autoFocus autoComplete="username" value={account} onChange={e=>setAccount(e.target.value)} placeholder="請輸入公司帳號"/></div></label>
+        <label>密碼<div className="login-input"><span>●</span><input type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="請輸入密碼"/><button type="button" onClick={()=>setShowPassword(!showPassword)} aria-label={showPassword ? "隱藏密碼" : "顯示密碼"}>{showPassword ? "隱藏" : "顯示"}</button></div></label>
+        <div className="login-options"><label><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> 保持登入</label><button type="button" onClick={()=>setError("展示環境請聯絡 MIS 管理人員重設密碼。")}>忘記密碼？</button></div>
+        {error && <div className="login-error" role="alert">⚠ {error}</div>}
+        <button className="login-submit" disabled={submitting}>{submitting ? "正在驗證…" : "安全登入"} <span>→</span></button>
+        <div className="demo-account"><b>展示環境測試帳號</b><span>帳號：TW_YVES　密碼：MIS2026!</span></div>
+        <p className="login-security">🔒 此連線受安全保護，所有登入活動將記錄於稽核日誌。</p>
+      </form>
+    </section>
+  </main>;
+}
+
 export default function Home() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [active, setActive] = useState("營運總覽");
   const [tickets, setTickets] = useState<string[][]>(() => {
     if (typeof window !== "undefined") {
@@ -245,6 +293,9 @@ export default function Home() {
   const [detail, setDetail] = useState<{title:string;body:string}|null>(null);
   const count = issue.length;
   const aiResult = useMemo(() => ({ category: "網路連線", priority: issue.includes("斷線") ? "高" : "中", team: "網路維運組" }), [issue]);
+  useEffect(() => {
+    setAuthenticated(window.localStorage.getItem("mis-authenticated") === "true" || window.sessionStorage.getItem("mis-authenticated") === "true");
+  }, []);
   useEffect(() => { window.localStorage.setItem("mis-tickets", JSON.stringify(tickets)); }, [tickets]);
 
   function diagnose() {
@@ -252,6 +303,12 @@ export default function Home() {
     setDiagnosis(true);
   }
   function flash(message:string) { setToast(message); window.setTimeout(() => setToast(""), 2400); }
+  function logout() {
+    window.localStorage.removeItem("mis-authenticated");
+    window.sessionStorage.removeItem("mis-authenticated");
+    setProfile(false);
+    setAuthenticated(false);
+  }
   function simulateEmailTicket() {
     const id = `INC-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(124 + tickets.length).padStart(4,"0")}`;
     const row = [id, "Email 自動建單：Outlook 郵件同步異常", "財務部 王小姐", "Email 自動建單", "高", new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}), "系統維運組"];
@@ -268,6 +325,9 @@ export default function Home() {
   }
   const searchResults = search.trim() ? tickets.filter(x => x.join(" ").toLowerCase().includes(search.toLowerCase())).slice(0,5) : [];
 
+  if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span></main>;
+  if (!authenticated) return <LoginScreen onLogin={() => setAuthenticated(true)} />;
+
   return (
     <main className="shell">
       <aside className="sidebar" aria-label="主要導覽">
@@ -282,7 +342,7 @@ export default function Home() {
           <div className="header-tools"><label className="search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="搜尋" placeholder="搜尋工單、設備或服務…" /></label><span className="access-badge"><i />已安全登入</span><button className="bell" onClick={() => setNotice(!notice)} aria-label="通知">♢{noticeCount > 0 && <i>{noticeCount}</i>}</button><button className="profile-button" onClick={() => setProfile(!profile)} aria-label="開啟管理人員選單"><span className="avatar">YT</span><span className="profile-copy"><b>TW_YVES</b><small>系統管理人員</small></span><span>⌄</span></button></div>
           {search.trim() && <div className="search-results"><strong>搜尋結果</strong>{searchResults.length ? searchResults.map(row=><button key={row[0]} onClick={()=>{setDetail({title:row[0],body:`${row[1]}，申請人 ${row[2]}，指派對象 ${row[6]}。`});setSearch("");}}><b>{row[0]}</b><span>{row[1]}</span></button>) : <p>找不到相符工單</p>}</div>}
           {notice && <div className="notice"><strong>最新通知</strong><button onClick={()=>{setActive("設備與服務");setNotice(false)}}>VPN 閘道偵測到異常延遲</button><button onClick={()=>{setActive("資安監控");setNotice(false)}}>3 件高風險事件待確認</button><button className="read-all" onClick={()=>{setNoticeCount(0);setNotice(false);flash("通知已全部標示為已讀")}}>全部標示為已讀</button></div>}
-          {profile && <div className="profile-menu"><div><span className="avatar">YT</span><p><strong>TW_YVES</strong><small>tsengs@twmns.com</small></p></div><span className="role-row"><b>角色</b><em>管理人員</em></span><button onClick={() => setActive("權限管理")}>管理帳號與權限</button><a href="/signout-with-chatgpt?return_to=/">安全登出</a></div>}
+          {profile && <div className="profile-menu"><div><span className="avatar">YT</span><p><strong>TW_YVES</strong><small>tsengs@twmns.com</small></p></div><span className="role-row"><b>角色</b><em>管理人員</em></span><button onClick={() => {setActive("權限管理");setProfile(false)}}>管理帳號與權限</button><button className="logout-button" onClick={logout}>安全登出</button></div>}
         </header>
 
         <div className={`dashboard ${active !== "營運總覽" ? "admin-mode" : ""}`}>
