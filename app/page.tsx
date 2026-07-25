@@ -94,8 +94,10 @@ type TestState = "待測試" | "測試中" | "通過";
 function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, body:string) => void; onEmailTicket: () => void }) {
   const [tab, setTab] = useState("SLA 與派工");
   const [toast, setToast] = useState("");
+  const [systemSurvey, setSystemSurvey] = useState({ ease:"4", speed:"4", usefulness:"5", recommend:"9", comment:"整體操作清楚，希望持續增加自助排除功能。" });
+  const [itSurvey, setItSurvey] = useState({ response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"張志豪", comment:"說明清楚，問題已完整排除。" });
   const flash = (message:string) => { setToast(message); window.setTimeout(() => setToast(""), 2300); };
-  const tabs = ["SLA 與派工", "AI 覆核", "知識庫", "重大事件", "服務評價"];
+  const tabs = ["SLA 與派工", "AI 覆核", "知識庫", "重大事件", "系統使用問卷", "IT 人員服務調查"];
   const sla = [
     ["P1 緊急", "15 分鐘", "2 小時", "重大資安事件、全公司服務中斷"],
     ["P2 高", "30 分鐘", "4 小時", "多位使用者或部門服務中斷"],
@@ -123,7 +125,33 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
     {tab === "AI 覆核" && <div className="card governance-list"><div className="card-head"><div><h3>人工覆核佇列</h3><p>低信心、P1/P2 與高風險事件必須人工確認</p></div><span className="queue-count">{reviews.length} 件待處理</span></div>{reviews.map(([id,title,confidence,meta]) => <button key={id} onClick={() => onOpen(id, `${title}。AI 信心 ${confidence}，判定結果：${meta}。請確認分類、優先度及派工對象。`)}><span><b>{id}</b><small>{title}</small></span><em>{confidence}</em><i>{meta}</i><strong>覆核 ›</strong></button>)}</div>}
     {tab === "知識庫" && <div className="card governance-list"><div className="card-head"><div><h3>知識庫治理</h3><p>以解決成功率與複核日期維持內容品質</p></div><button className="primary" onClick={() => flash("已建立新的知識文章草稿")}>新增文章</button></div>{knowledge.map(([title,status,meta]) => <button key={title} onClick={() => onOpen(title, `${status}。${meta}。可在正式串接後編輯內容、送審或發布。`)}><span><b>{title}</b><small>{meta}</small></span><i className={status === "已發布" ? "good" : ""}>{status}</i><strong>管理 ›</strong></button>)}</div>}
     {tab === "重大事件" && <div className="governance-grid incidents">{incidents.map(([title,status,body]) => <article className="card governance-card" key={title}><span className="governance-level p2">{status}</span><h3>{title}</h3><p>{body}</p><div className="card-actions"><button className="secondary" onClick={() => onOpen(title, body)}>檢視關聯工單</button><button className="primary" onClick={() => flash(`${title} 已通知主管確認`)}>通知主管</button></div></article>)}</div>}
-    {tab === "服務評價" && <div className="survey-dashboard"><div className="module-summary"><article className="card"><span>系統使用滿意度</span><b>4.4 / 5</b><small>填答率 64%・NPS 42</small></article><article className="card"><span>IT 服務滿意度</span><b>4.6 / 5</b><small>一次解決率 78%</small></article><article className="card"><span>低分待追蹤</span><b>3 件</b><small>2 件已建立改善事項</small></article></div><div className="card survey-form"><h3>結案服務評價</h3><p>模擬使用者完成工單後的服務品質回饋。</p><label>處理速度<input type="range" min="1" max="5" defaultValue="5" /></label><label>問題解決能力<input type="range" min="1" max="5" defaultValue="4" /></label><label>其他建議<textarea defaultValue="工程師說明清楚，處理速度很快。" /></label><button className="primary" onClick={() => flash("服務評價已送出並納入統計")}>送出評價</button></div></div>}
+    {tab === "系統使用問卷" && <div className="survey-dashboard">
+      <div className="module-summary"><article className="card"><span>系統整體滿意度</span><b>4.4 / 5</b><small>本月 86 份有效問卷</small></article><article className="card"><span>系統推薦指數</span><b>42 NPS</b><small>較上月提升 6 點</small></article><article className="card"><span>目前填答率</span><b>64%</b><small>目標填答率 75%</small></article></div>
+      <div className="card survey-form"><div className="survey-title"><div><span className="eyebrow">END USER EXPERIENCE</span><h3>系統使用上問卷調查</h3><p>了解使用者對 AI 報修、工單查詢及整體操作體驗的意見。</p></div><span className="survey-audience">一般使用者</span></div>
+        <div className="survey-question-grid">
+          <label>介面是否容易理解？<select value={systemSurvey.ease} onChange={e=>setSystemSurvey({...systemSurvey,ease:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
+          <label>操作與頁面回應速度？<select value={systemSurvey.speed} onChange={e=>setSystemSurvey({...systemSurvey,speed:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
+          <label>AI 報修建議是否有幫助？<select value={systemSurvey.usefulness} onChange={e=>setSystemSurvey({...systemSurvey,usefulness:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
+          <label>推薦同事使用（0–10）<input type="number" min="0" max="10" value={systemSurvey.recommend} onChange={e=>setSystemSurvey({...systemSurvey,recommend:e.target.value})}/></label>
+        </div>
+        <label>希望改善的功能或其他建議<textarea value={systemSurvey.comment} onChange={e=>setSystemSurvey({...systemSurvey,comment:e.target.value})} /></label>
+        <div className="survey-actions"><small>問卷將以匿名方式納入系統改善統計。</small><button className="primary" onClick={() => flash("系統使用問卷已成功送出")}>送出系統使用問卷</button></div>
+      </div>
+    </div>}
+    {tab === "IT 人員服務調查" && <div className="survey-dashboard">
+      <div className="module-summary"><article className="card"><span>IT 人員服務滿意度</span><b>4.6 / 5</b><small>本月 74 份服務回饋</small></article><article className="card"><span>一次解決率</span><b>78%</b><small>目標值 80%</small></article><article className="card"><span>低分待追蹤</span><b>3 件</b><small>2 件已建立改善事項</small></article></div>
+      <div className="card survey-form"><div className="survey-title"><div><span className="eyebrow">IT SERVICE QUALITY</span><h3>IT 人員服務調查</h3><p>針對資訊人員的回應速度、專業能力、溝通品質與解決結果進行評價。</p></div><span className="survey-audience service">結案回饋</span></div>
+        <div className="survey-question-grid">
+          <label>服務人員<select value={itSurvey.engineer} onChange={e=>setItSurvey({...itSurvey,engineer:e.target.value})}><option>張志豪</option><option>李柏翰</option><option>吳宜庭</option><option>劉又誠</option></select></label>
+          <label>回應與處理速度<select value={itSurvey.response} onChange={e=>setItSurvey({...itSurvey,response:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
+          <label>問題解決專業度<select value={itSurvey.expertise} onChange={e=>setItSurvey({...itSurvey,expertise:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
+          <label>說明與溝通品質<select value={itSurvey.communication} onChange={e=>setItSurvey({...itSurvey,communication:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
+          <label>本次問題是否已解決？<select value={itSurvey.resolved} onChange={e=>setItSurvey({...itSurvey,resolved:e.target.value})}><option>是</option><option>部分解決</option><option>否</option></select></label>
+        </div>
+        <label>服務意見與改善建議<textarea value={itSurvey.comment} onChange={e=>setItSurvey({...itSurvey,comment:e.target.value})} /></label>
+        <div className="survey-actions"><small>低於 3 分或尚未解決的回饋將自動列入改善追蹤。</small><button className="primary" onClick={() => flash("IT 人員服務調查已成功送出")}>送出 IT 服務調查</button></div>
+      </div>
+    </div>}
     {toast && <div className="toast">✓ {toast}</div>}
   </section>;
 }
