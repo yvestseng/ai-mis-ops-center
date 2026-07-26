@@ -1,6 +1,6 @@
 {
   "name": "ai-mis-ops-center",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "lucide-react": "^0.468.0",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -40,5 +41,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "AI \u8cc7\u8a0a\u5831\u4fee\u8207 MIS \u8cc7\u5b89\u76e3\u63a7\u4e2d\u5fc3"
+  "displayName": "AI 資訊報修與 MIS 資安監控中心"
 }

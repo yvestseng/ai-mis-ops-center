@@ -1,25 +1,67 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  BadgeCheck,
+  ClipboardList,
+  LayoutDashboard,
+  Network,
+  Server,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  UserRoundCog,
+  type LucideIcon,
+} from "lucide-react";
 
-const initialTickets = [
-  ["INC-20260718-0123", "筆電無法連線公司 Wi-Fi", "王小明", "AI 報修", "高", "09:15", "張志豪"],
-  ["INC-20260718-0119", "無法存取檔案伺服器", "林佳穎", "表單報修", "中", "08:47", "李柏翰"],
-  ["INC-20260718-0112", "Outlook 無法同步郵件", "陳思穎", "AI 報修", "中", "08:21", "吳宜庭"],
-  ["INC-20260718-0107", "VPN 連線不穩定", "黃致遠", "AI 報修", "高", "07:52", "張志豪"],
-  ["INC-20260718-0098", "印表機離線無法列印", "周子涵", "表單報修", "低", "07:31", "劉又誠"],
-];
+type Ticket = {
+  id: string;
+  ticketNumber: string;
+  requesterName: string;
+  requesterEmail: string;
+  department: string;
+  title: string;
+  description: string;
+  category: string;
+  priority: string;
+  source: string;
+  location?: string | null;
+  assetTag?: string | null;
+  assignedTeam: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
-const nav = [
-  ["▦", "營運總覽"], ["✦", "AI 資訊報修"], ["▤", "我的工單"],
-  ["▥", "設備與服務"], ["♢", "資安監控"], ["◫", "服務治理"],
-  ["♙", "權限管理"], ["⚙", "系統設定"],
+type TicketEvent = {
+  eventType: string;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  actorName: string;
+  note?: string | null;
+  createdAt: string;
+};
+
+const nav: { icon: LucideIcon; label: string }[] = [
+  { icon: LayoutDashboard, label: "營運總覽" },
+  { icon: Sparkles, label: "AI 資訊報修" },
+  { icon: ClipboardList, label: "我的工單" },
+  { icon: Server, label: "設備與服務" },
+  { icon: ShieldCheck, label: "資安監控" },
+  { icon: BadgeCheck, label: "服務治理" },
+  { icon: UserRoundCog, label: "權限管理" },
+  { icon: Settings, label: "系統設定" },
 ];
 
 const modules = ["營運總覽", "AI 資訊報修", "工單管理", "設備與服務", "資安監控", "服務治理", "權限管理", "系統設定"];
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`toggle ${checked ? "on" : ""}`} onClick={onChange}><span /></button>;
+}
+
+function createClientId() {
+  return globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function PermissionConsole() {
@@ -95,8 +137,88 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
   const [tab, setTab] = useState("SLA 與派工");
   const [toast, setToast] = useState("");
   const [systemSurvey, setSystemSurvey] = useState({ ease:"4", speed:"4", usefulness:"5", recommend:"9", comment:"整體操作清楚，希望持續增加自助排除功能。" });
-  const [itSurvey, setItSurvey] = useState({ response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"張志豪", comment:"說明清楚，問題已完整排除。" });
+  const [itSurvey, setItSurvey] = useState({ ticketReference:"", response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"張志豪", comment:"說明清楚，問題已完整排除。" });
+  const [submittingSurvey, setSubmittingSurvey] = useState<"system_usage" | "it_service" | null>(null);
+  const [surveyStats, setSurveyStats] = useState({
+    system_usage: { responseCount: 0, averageScore: 0, averageNps: 0 },
+    it_service: { responseCount: 0, averageScore: 0, averageNps: 0 },
+    pendingFollowups: 0,
+  });
   const flash = (message:string) => { setToast(message); window.setTimeout(() => setToast(""), 2300); };
+  const respondentToken = () => {
+    const key = "mis-survey-device-id";
+    let value = window.localStorage.getItem(key);
+    if (!value) {
+      value = createClientId();
+      window.localStorage.setItem(key, value);
+    }
+    return value;
+  };
+  const loadSurveyStats = async () => {
+    try {
+      const response = await fetch("/api/surveys", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      const next = {
+        system_usage: { responseCount: 0, averageScore: 0, averageNps: 0 },
+        it_service: { responseCount: 0, averageScore: 0, averageNps: 0 },
+        pendingFollowups: Number(data.pendingFollowups || 0),
+      };
+      for (const row of data.summaries || []) {
+        if (row.survey_type === "system_usage" || row.survey_type === "it_service") {
+          next[row.survey_type] = {
+            responseCount: Number(row.response_count || 0),
+            averageScore: Number(row.average_score || 0),
+            averageNps: Number(row.average_nps || 0),
+          };
+        }
+      }
+      setSurveyStats(next);
+    } catch {}
+  };
+  const submitSurvey = async (surveyType: "system_usage" | "it_service") => {
+    if (submittingSurvey) return;
+    if (surveyType === "it_service" && !itSurvey.ticketReference.trim()) {
+      flash("請先輸入本次服務的工單編號");
+      return;
+    }
+    setSubmittingSurvey(surveyType);
+    try {
+      const source = surveyType === "system_usage" ? systemSurvey : itSurvey;
+      const response = await fetch("/api/surveys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          submissionKey: createClientId(),
+          respondentToken: respondentToken(),
+          surveyType,
+          ticketReference: surveyType === "it_service" ? itSurvey.ticketReference : undefined,
+          engineer: surveyType === "it_service" ? itSurvey.engineer : undefined,
+          resolved: surveyType === "it_service" ? itSurvey.resolved : undefined,
+          comment: source.comment,
+          answers: source,
+        }),
+      });
+      const responseText = await response.text();
+      let result: { message?: string } = {};
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        console.error("Unexpected survey response", response.status, responseText.slice(0, 300));
+        flash(`問卷服務回傳異常（HTTP ${response.status}）`);
+        return;
+      }
+      flash(result.message || (response.ok ? "問卷已成功送出" : "問卷送出失敗"));
+      if (response.ok) {
+        if (surveyType === "it_service") setItSurvey({...itSurvey, ticketReference:""});
+        await loadSurveyStats();
+      }
+    } catch {
+      flash("網路連線異常，問卷尚未送出");
+    } finally {
+      setSubmittingSurvey(null);
+    }
+  };
   const tabs = ["SLA 與派工", "AI 覆核", "知識庫", "重大事件", "系統使用問卷", "IT 人員服務調查"];
   const sla = [
     ["P1 緊急", "15 分鐘", "2 小時", "重大資安事件、全公司服務中斷"],
@@ -120,13 +242,13 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
   ];
   return <section className="management-console governance">
     <div className="page-heading"><div><span className="eyebrow">IT SERVICE GOVERNANCE</span><h2>服務治理中心</h2><p>統一管理 SLA、AI 覆核、知識庫、重大事件與服務品質。</p></div><div className="toolbar"><button className="secondary" onClick={onEmailTicket}>✉ 模擬 Email 建單</button><button className="primary" onClick={() => flash("治理規則檢查完成，未發現衝突")}>執行治理檢查</button></div></div>
-    <nav className="governance-tabs card">{tabs.map(x => <button key={x} className={tab === x ? "active" : ""} onClick={() => setTab(x)}>{x}</button>)}</nav>
+    <nav className="governance-tabs card">{tabs.map(x => <button key={x} className={tab === x ? "active" : ""} onClick={() => { setTab(x); if (x.includes("問卷") || x.includes("調查")) void loadSurveyStats(); }}>{x}</button>)}</nav>
     {tab === "SLA 與派工" && <div className="governance-grid">{sla.map(([level,response,target,scope]) => <article className="card governance-card" key={level}><span className={`governance-level ${level.slice(0,2).toLowerCase()}`}>{level}</span><dl><div><dt>首次回應</dt><dd>{response}</dd></div><div><dt>處理目標</dt><dd>{target}</dd></div></dl><p>{scope}</p><button className="secondary" onClick={() => onOpen(`${level} SLA 政策`, `首次回應 ${response}，處理目標 ${target}。適用範圍：${scope}。`)}>檢視與調整</button></article>)}</div>}
     {tab === "AI 覆核" && <div className="card governance-list"><div className="card-head"><div><h3>人工覆核佇列</h3><p>低信心、P1/P2 與高風險事件必須人工確認</p></div><span className="queue-count">{reviews.length} 件待處理</span></div>{reviews.map(([id,title,confidence,meta]) => <button key={id} onClick={() => onOpen(id, `${title}。AI 信心 ${confidence}，判定結果：${meta}。請確認分類、優先度及派工對象。`)}><span><b>{id}</b><small>{title}</small></span><em>{confidence}</em><i>{meta}</i><strong>覆核 ›</strong></button>)}</div>}
     {tab === "知識庫" && <div className="card governance-list"><div className="card-head"><div><h3>知識庫治理</h3><p>以解決成功率與複核日期維持內容品質</p></div><button className="primary" onClick={() => flash("已建立新的知識文章草稿")}>新增文章</button></div>{knowledge.map(([title,status,meta]) => <button key={title} onClick={() => onOpen(title, `${status}。${meta}。可在正式串接後編輯內容、送審或發布。`)}><span><b>{title}</b><small>{meta}</small></span><i className={status === "已發布" ? "good" : ""}>{status}</i><strong>管理 ›</strong></button>)}</div>}
     {tab === "重大事件" && <div className="governance-grid incidents">{incidents.map(([title,status,body]) => <article className="card governance-card" key={title}><span className="governance-level p2">{status}</span><h3>{title}</h3><p>{body}</p><div className="card-actions"><button className="secondary" onClick={() => onOpen(title, body)}>檢視關聯工單</button><button className="primary" onClick={() => flash(`${title} 已通知主管確認`)}>通知主管</button></div></article>)}</div>}
     {tab === "系統使用問卷" && <div className="survey-dashboard">
-      <div className="module-summary"><article className="card"><span>系統整體滿意度</span><b>4.4 / 5</b><small>本月 86 份有效問卷</small></article><article className="card"><span>系統推薦指數</span><b>42 NPS</b><small>較上月提升 6 點</small></article><article className="card"><span>目前填答率</span><b>64%</b><small>目標填答率 75%</small></article></div>
+      <div className="module-summary"><article className="card"><span>系統整體滿意度</span><b>{surveyStats.system_usage.averageScore ? `${surveyStats.system_usage.averageScore} / 5` : "尚無資料"}</b><small>D1 即時彙整</small></article><article className="card"><span>平均推薦分數</span><b>{surveyStats.system_usage.averageNps ? `${surveyStats.system_usage.averageNps} / 10` : "尚無資料"}</b><small>0–10 分推薦意願</small></article><article className="card"><span>有效問卷</span><b>{surveyStats.system_usage.responseCount}</b><small>已永久儲存份數</small></article></div>
       <div className="card survey-form"><div className="survey-title"><div><span className="eyebrow">END USER EXPERIENCE</span><h3>系統使用上問卷調查</h3><p>了解使用者對 AI 報修、工單查詢及整體操作體驗的意見。</p></div><span className="survey-audience">一般使用者</span></div>
         <div className="survey-question-grid">
           <label>介面是否容易理解？<select value={systemSurvey.ease} onChange={e=>setSystemSurvey({...systemSurvey,ease:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
@@ -135,13 +257,14 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
           <label>推薦同事使用（0–10）<input type="number" min="0" max="10" value={systemSurvey.recommend} onChange={e=>setSystemSurvey({...systemSurvey,recommend:e.target.value})}/></label>
         </div>
         <label>希望改善的功能或其他建議<textarea value={systemSurvey.comment} onChange={e=>setSystemSurvey({...systemSurvey,comment:e.target.value})} /></label>
-        <div className="survey-actions"><small>問卷將以匿名方式納入系統改善統計。</small><button className="primary" onClick={() => flash("系統使用問卷已成功送出")}>送出系統使用問卷</button></div>
+        <div className="survey-actions"><small>問卷匿名儲存至 D1；同一裝置每天限填一次。</small><button className="primary" disabled={submittingSurvey !== null} onClick={() => void submitSurvey("system_usage")}>{submittingSurvey === "system_usage" ? "正在儲存…" : "送出系統使用問卷"}</button></div>
       </div>
     </div>}
     {tab === "IT 人員服務調查" && <div className="survey-dashboard">
-      <div className="module-summary"><article className="card"><span>IT 人員服務滿意度</span><b>4.6 / 5</b><small>本月 74 份服務回饋</small></article><article className="card"><span>一次解決率</span><b>78%</b><small>目標值 80%</small></article><article className="card"><span>低分待追蹤</span><b>3 件</b><small>2 件已建立改善事項</small></article></div>
+      <div className="module-summary"><article className="card"><span>IT 人員服務滿意度</span><b>{surveyStats.it_service.averageScore ? `${surveyStats.it_service.averageScore} / 5` : "尚無資料"}</b><small>D1 即時彙整</small></article><article className="card"><span>有效服務回饋</span><b>{surveyStats.it_service.responseCount}</b><small>依工單編號去除重複</small></article><article className="card"><span>低分待追蹤</span><b>{surveyStats.pendingFollowups}</b><small>自動建立改善事項</small></article></div>
       <div className="card survey-form"><div className="survey-title"><div><span className="eyebrow">IT SERVICE QUALITY</span><h3>IT 人員服務調查</h3><p>針對資訊人員的回應速度、專業能力、溝通品質與解決結果進行評價。</p></div><span className="survey-audience service">結案回饋</span></div>
         <div className="survey-question-grid">
+          <label>工單編號<input required value={itSurvey.ticketReference} onChange={e=>setItSurvey({...itSurvey,ticketReference:e.target.value})} placeholder="例如 INC-20260726-001" /></label>
           <label>服務人員<select value={itSurvey.engineer} onChange={e=>setItSurvey({...itSurvey,engineer:e.target.value})}><option>張志豪</option><option>李柏翰</option><option>吳宜庭</option><option>劉又誠</option></select></label>
           <label>回應與處理速度<select value={itSurvey.response} onChange={e=>setItSurvey({...itSurvey,response:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
           <label>問題解決專業度<select value={itSurvey.expertise} onChange={e=>setItSurvey({...itSurvey,expertise:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
@@ -149,14 +272,14 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
           <label>本次問題是否已解決？<select value={itSurvey.resolved} onChange={e=>setItSurvey({...itSurvey,resolved:e.target.value})}><option>是</option><option>部分解決</option><option>否</option></select></label>
         </div>
         <label>服務意見與改善建議<textarea value={itSurvey.comment} onChange={e=>setItSurvey({...itSurvey,comment:e.target.value})} /></label>
-        <div className="survey-actions"><small>低於 3 分或尚未解決的回饋將自動列入改善追蹤。</small><button className="primary" onClick={() => flash("IT 人員服務調查已成功送出")}>送出 IT 服務調查</button></div>
+        <div className="survey-actions"><small>低於 3 分或尚未解決的回饋將自動列入改善追蹤。</small><button className="primary" disabled={submittingSurvey !== null} onClick={() => void submitSurvey("it_service")}>{submittingSurvey === "it_service" ? "正在儲存…" : "送出 IT 服務調查"}</button></div>
       </div>
     </div>}
     {toast && <div className="toast">✓ {toast}</div>}
   </section>;
 }
 
-function ModuleConsole({ module, tickets, onOpen }: { module: string; tickets: string[][]; onOpen: (title:string, body:string) => void }) {
+function ModuleConsole({ module, tickets, onOpen, onTicket }: { module: string; tickets: Ticket[]; onOpen: (title:string, body:string) => void; onTicket: (ticket:Ticket) => void }) {
   const [filter, setFilter] = useState("全部");
   const [testStates, setTestStates] = useState<Record<string, TestState>>(() => {
     if (typeof window !== "undefined") {
@@ -188,33 +311,33 @@ function ModuleConsole({ module, tickets, onOpen }: { module: string; tickets: s
   const def = definitions[module];
   if (!def) return null;
 
-  const records = module === "我的工單" ? tickets.map((x,i) => ({name:x[0], detail:x[1], meta:`${x[4]}優先・${x[6]}`, status:i < 2 ? "處理中":"待處理"}))
+  const records = module === "我的工單" ? tickets.map((x) => ({name:x.ticketNumber, detail:x.title, meta:`${x.priority}優先・${x.assignedTeam}`, status:x.status, ticket:x}))
     : module === "設備與服務" ? [
-      {name:"Microsoft 365",detail:"郵件、Teams、SharePoint",meta:"可用率 99.99%",status:"正常"},
-      {name:"公司網路",detail:"核心交換器與無線網路",meta:"延遲 8 ms",status:"正常"},
-      {name:"VPN Gateway",detail:"遠端存取服務",meta:"延遲偏高",status:"注意"},
-      {name:"ERP Production",detail:"企業資源管理系統",meta:"最後檢查 1 分鐘前",status:"正常"}]
+      {name:"Microsoft 365",detail:"郵件、Teams、SharePoint",meta:"可用率 99.99%",status:"正常",ticket:undefined},
+      {name:"公司網路",detail:"核心交換器與無線網路",meta:"延遲 8 ms",status:"正常",ticket:undefined},
+      {name:"VPN Gateway",detail:"遠端存取服務",meta:"延遲偏高",status:"注意",ticket:undefined},
+      {name:"ERP Production",detail:"企業資源管理系統",meta:"最後檢查 1 分鐘前",status:"正常",ticket:undefined}]
     : module === "資安監控" ? [
-      {name:"異常登入嘗試",detail:"非辦公地區連續登入失敗",meta:"12 個事件",status:"高風險"},
-      {name:"端點高風險弱點",detail:"需安排修補與重新掃描",meta:"7 台設備",status:"待處置"},
-      {name:"惡意郵件攔截",detail:"郵件閘道已完成隔離",meta:"5 封郵件",status:"已阻擋"},
-      {name:"防火牆規則稽核",detail:"本週設定基準比對完成",meta:"0 個異常",status:"正常"}]
+      {name:"異常登入嘗試",detail:"非辦公地區連續登入失敗",meta:"12 個事件",status:"高風險",ticket:undefined},
+      {name:"端點高風險弱點",detail:"需安排修補與重新掃描",meta:"7 台設備",status:"待處置",ticket:undefined},
+      {name:"惡意郵件攔截",detail:"郵件閘道已完成隔離",meta:"5 封郵件",status:"已阻擋",ticket:undefined},
+      {name:"防火牆規則稽核",detail:"本週設定基準比對完成",meta:"0 個異常",status:"正常",ticket:undefined}]
     : [
-      {name:"無法連線公司 Wi-Fi",detail:"AI 判定：網路連線／高優先",meta:"建議指派網路維運組",status:"待確認"},
-      {name:"Outlook 無法同步",detail:"AI 判定：Microsoft 365／中優先",meta:"建議指派系統維運組",status:"待確認"},
-      {name:"VPN 經常斷線",detail:"AI 判定：遠端連線／高優先",meta:"已完成初步診斷",status:"可建立"}];
+      {name:"無法連線公司 Wi-Fi",detail:"AI 判定：網路連線／高優先",meta:"建議指派網路維運組",status:"待確認",ticket:undefined},
+      {name:"Outlook 無法同步",detail:"AI 判定：Microsoft 365／中優先",meta:"建議指派系統維運組",status:"待確認",ticket:undefined},
+      {name:"VPN 經常斷線",detail:"AI 判定：遠端連線／高優先",meta:"已完成初步診斷",status:"可建立",ticket:undefined}];
   const shown = filter === "全部" ? records : records.filter(x => x.status === filter);
 
   return <section className="module-console">
     <div className="page-heading"><div><span className="eyebrow">{def.kicker}</span><h2>{def.title}</h2><p>{def.description}</p></div><button className="primary" onClick={() => runAll(def.tests)}>▶ 執行全部測試</button></div>
     <div className="module-summary">
-      <article className="card"><span>今日資料</span><b>{records.length * 4 + 3}</b><small>資料同步正常</small></article>
-      <article className="card"><span>待處理</span><b>{Math.max(2, records.length - 1)}</b><small>依優先級排序</small></article>
-      <article className="card"><span>服務健康度</span><b>99.9%</b><small className="ok">● 運作正常</small></article>
+      <article className="card"><span>{module === "我的工單" ? "全部工單" : "今日資料"}</span><b>{module === "我的工單" ? tickets.length : records.length * 4 + 3}</b><small>{module === "我的工單" ? "D1 永久儲存" : "資料同步正常"}</small></article>
+      <article className="card"><span>待處理</span><b>{module === "我的工單" ? tickets.filter(x=>x.status==="待處理").length : Math.max(2, records.length - 1)}</b><small>依優先級排序</small></article>
+      <article className="card"><span>{module === "我的工單" ? "處理中" : "服務健康度"}</span><b>{module === "我的工單" ? tickets.filter(x=>x.status==="處理中").length : "99.9%"}</b><small className="ok">{module === "我的工單" ? "● 狀態即時更新" : "● 運作正常"}</small></article>
     </div>
     <div className="module-grid">
       <div className="card record-panel"><div className="card-head"><div><h3>{module === "設備與服務" ? "服務清單" : module === "資安監控" ? "最新事件" : "工作項目"}</h3><p>點選資料可開啟詳細內容與操作</p></div><select value={filter} onChange={e=>setFilter(e.target.value)}><option>全部</option>{[...new Set(records.map(x=>x.status))].map(x=><option key={x}>{x}</option>)}</select></div>
-        <div className="record-list">{shown.map(x=><button key={x.name} onClick={()=>onOpen(x.name, `${x.detail}。${x.meta}。目前狀態：${x.status}。你可以在正式串接後於此執行指派、更新、調查或處置。`)}><span><b>{x.name}</b><small>{x.detail}</small></span><em>{x.meta}</em><i className={x.status.includes("正常")||x.status.includes("阻擋")||x.status.includes("建立")?"good":""}>{x.status}</i><strong>›</strong></button>)}</div>
+        <div className="record-list">{shown.length ? shown.map(x=><button key={x.name} onClick={()=>x.ticket ? onTicket(x.ticket) : onOpen(x.name, `${x.detail}。${x.meta}。目前狀態：${x.status}。`)}><span><b>{x.name}</b><small>{x.detail}</small></span><em>{x.meta}</em><i className={x.status.includes("正常")||x.status.includes("阻擋")||x.status.includes("建立")||x.status.includes("解決")||x.status.includes("結案")?"good":""}>{x.status}</i><strong>›</strong></button>) : <div className="empty-state"><b>目前沒有工單</b><span>請前往「AI 資訊報修」建立第一張工單。</span></div>}</div>
       </div>
       <div className="card test-panel"><div className="card-head"><div><h3>功能測試中心</h3><p>逐項確認模組功能是否可正常執行</p></div></div>
         {def.tests.map(name => <div className="test-row" key={name}><span className={`test-dot ${testStates[name] === "通過" ? "pass":testStates[name] === "測試中" ? "running":""}`}/><div><b>{name}</b><small>{testStates[name] || "待測試"}</small></div><button className="secondary" disabled={testStates[name] === "測試中"} onClick={()=>runTest(name)}>{testStates[name] === "通過" ? "重新測試":"開始測試"}</button></div>)}
@@ -273,30 +396,69 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 export default function Home() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [active, setActive] = useState("營運總覽");
-  const [tickets, setTickets] = useState<string[][]>(() => {
-    if (typeof window !== "undefined") {
-      const stored = window.localStorage.getItem("mis-tickets");
-      if (stored) try { return JSON.parse(stored); } catch {}
-    }
-    return initialTickets;
-  });
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
   const [issue, setIssue] = useState("我的筆電連不上公司 Wi-Fi，從早上開始一直斷線");
   const [diagnosis, setDiagnosis] = useState(false);
   const [formMode, setFormMode] = useState(false);
   const [requester, setRequester] = useState("TW_YVES");
+  const [requesterEmail, setRequesterEmail] = useState("tsengs@twmns.com");
+  const [department, setDepartment] = useState("資訊部");
+  const [location, setLocation] = useState("台北辦公室");
+  const [assetTag, setAssetTag] = useState("");
   const [category, setCategory] = useState("自動判斷");
+  const [priority, setPriority] = useState("自動判斷");
+  const [submittingTicket, setSubmittingTicket] = useState(false);
   const [notice, setNotice] = useState(false);
   const [noticeCount, setNoticeCount] = useState(3);
   const [profile, setProfile] = useState(false);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
   const [detail, setDetail] = useState<{title:string;body:string}|null>(null);
+  const [ticketDetail, setTicketDetail] = useState<{ticket:Ticket;events:TicketEvent[]}|null>(null);
+  const [ticketNote, setTicketNote] = useState("");
+  const [ticketStatus, setTicketStatus] = useState("待處理");
+  const [updatingTicket, setUpdatingTicket] = useState(false);
   const count = issue.length;
   const aiResult = useMemo(() => ({ category: "網路連線", priority: issue.includes("斷線") ? "高" : "中", team: "網路維運組" }), [issue]);
+  function requesterToken() {
+    const key = "mis-ticket-requester-id";
+    let value = window.localStorage.getItem(key);
+    if (!value) {
+      value = createClientId();
+      window.localStorage.setItem(key, value);
+    }
+    return value;
+  }
+  async function loadTickets() {
+    setTicketsLoading(true);
+    try {
+      const response = await fetch("/api/tickets", {
+        headers: { "x-requester-token": requesterToken() },
+        cache: "no-store",
+      });
+      const result = await response.json() as { tickets?: Ticket[]; message?: string };
+      if (!response.ok) throw new Error(result.message || "工單查詢失敗");
+      setTickets(result.tickets || []);
+    } catch {
+      flash("工單資料暫時無法讀取，請稍後重新整理");
+    } finally {
+      setTicketsLoading(false);
+    }
+  }
   useEffect(() => {
-    setAuthenticated(window.localStorage.getItem("mis-authenticated") === "true" || window.sessionStorage.getItem("mis-authenticated") === "true");
+    const restoreSession = window.setTimeout(() => {
+      setAuthenticated(window.localStorage.getItem("mis-authenticated") === "true" || window.sessionStorage.getItem("mis-authenticated") === "true");
+    }, 0);
+    return () => window.clearTimeout(restoreSession);
   }, []);
-  useEffect(() => { window.localStorage.setItem("mis-tickets", JSON.stringify(tickets)); }, [tickets]);
+  useEffect(() => {
+    if (!authenticated) return;
+    const timer = window.setTimeout(() => void loadTickets(), 0);
+    return () => window.clearTimeout(timer);
+    // loadTickets intentionally runs only when the authenticated session changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated]);
 
   function diagnose() {
     if (!issue.trim()) return flash("請先輸入問題描述");
@@ -309,21 +471,125 @@ export default function Home() {
     setProfile(false);
     setAuthenticated(false);
   }
-  function simulateEmailTicket() {
-    const id = `INC-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(124 + tickets.length).padStart(4,"0")}`;
-    const row = [id, "Email 自動建單：Outlook 郵件同步異常", "財務部 王小姐", "Email 自動建單", "高", new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}), "系統維運組"];
-    setTickets([row, ...tickets]);
-    setNoticeCount(x => x + 1);
-    flash(`已擷取報修信箱郵件並建立工單 ${id}`);
+  async function postTicket(values: Record<string, unknown>) {
+    const response = await fetch("/api/tickets", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requesterToken: requesterToken(), ...values }),
+    });
+    const text = await response.text();
+    let result: { ticket?: Ticket; message?: string } = {};
+    try {
+      result = JSON.parse(text);
+    } catch {
+      throw new Error(`工單服務回傳異常（HTTP ${response.status}）`);
+    }
+    if (!response.ok || !result.ticket) throw new Error(result.message || "工單建立失敗");
+    setTickets(current => [result.ticket!, ...current]);
+    return result;
   }
-  function createTicket() {
-    const id = `INC-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${String(124 + tickets.length).padStart(4,"0")}`;
-    const row = [id, issue.trim(), requester, formMode ? "表單報修" : "AI 報修", aiResult.priority, new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"}), aiResult.team];
-    setTickets([row, ...tickets]);
-    setDiagnosis(false); setIssue(""); setFormMode(false);
-    flash(`工單 ${id} 已建立並指派給 ${aiResult.team}`);
+  async function simulateEmailTicket() {
+    if (submittingTicket) return;
+    setSubmittingTicket(true);
+    try {
+      const result = await postTicket({
+        requesterName: requester,
+        requesterEmail,
+        department,
+        title: "Outlook 郵件同步異常",
+        description: "Email 自動建單測試：Outlook 自上午起無法同步新郵件，重新啟動後仍未恢復。",
+        category: "Microsoft 365",
+        priority: "高",
+        source: "Email 自動建單",
+        location,
+        assetTag,
+        assignedTeam: "系統維運組",
+      });
+      setNoticeCount(x => x + 1);
+      flash(result.message || "Email 工單已建立");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Email 工單建立失敗");
+    } finally {
+      setSubmittingTicket(false);
+    }
   }
-  const searchResults = search.trim() ? tickets.filter(x => x.join(" ").toLowerCase().includes(search.toLowerCase())).slice(0,5) : [];
+  async function createTicket() {
+    if (submittingTicket) return;
+    if (!requester.trim() || !requesterEmail.includes("@") || !department.trim()) {
+      flash("請完整填寫申請人、聯絡信箱與部門");
+      setFormMode(true);
+      return;
+    }
+    if (issue.trim().length < 10) return flash("問題描述至少需要 10 個字");
+    setSubmittingTicket(true);
+    try {
+      const selectedCategory = category === "自動判斷" ? aiResult.category : category;
+      const selectedPriority = priority === "自動判斷" ? aiResult.priority : priority;
+      const result = await postTicket({
+        requesterName: requester,
+        requesterEmail,
+        department,
+        title: issue.trim().slice(0, 60),
+        description: issue.trim(),
+        category: selectedCategory,
+        priority: selectedPriority,
+        source: formMode ? "表單報修" : "AI 報修",
+        location,
+        assetTag,
+        assignedTeam: aiResult.team,
+      });
+      setDiagnosis(false);
+      setIssue("");
+      setFormMode(false);
+      setActive("我的工單");
+      flash(result.message || "工單已建立");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "工單建立失敗，請稍後再試");
+    } finally {
+      setSubmittingTicket(false);
+    }
+  }
+  async function openTicket(ticket: Ticket) {
+    try {
+      const response = await fetch(`/api/tickets/${ticket.id}`, {
+        headers: { "x-requester-token": requesterToken() },
+        cache: "no-store",
+      });
+      const result = await response.json() as { ticket?: Ticket; events?: TicketEvent[]; message?: string };
+      if (!response.ok || !result.ticket) throw new Error(result.message || "工單明細讀取失敗");
+      setTicketStatus(result.ticket.status);
+      setTicketNote("");
+      setTicketDetail({ ticket: result.ticket, events: result.events || [] });
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "工單明細讀取失敗");
+    }
+  }
+  async function updateTicket() {
+    if (!ticketDetail || updatingTicket) return;
+    setUpdatingTicket(true);
+    try {
+      const response = await fetch(`/api/tickets/${ticketDetail.ticket.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requesterToken: requesterToken(),
+          status: ticketStatus,
+          note: ticketNote,
+          actorName: requester,
+        }),
+      });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message || "工單更新失敗");
+      await loadTickets();
+      await openTicket({ ...ticketDetail.ticket, status: ticketStatus });
+      flash(result.message || "工單已更新");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "工單更新失敗");
+    } finally {
+      setUpdatingTicket(false);
+    }
+  }
+  const searchResults = search.trim() ? tickets.filter(x => Object.values(x).join(" ").toLowerCase().includes(search.toLowerCase())).slice(0,5) : [];
 
   if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span></main>;
   if (!authenticated) return <LoginScreen onLogin={() => setAuthenticated(true)} />;
@@ -331,16 +597,19 @@ export default function Home() {
   return (
     <main className="shell">
       <aside className="sidebar" aria-label="主要導覽">
-        <div className="brand"><span className="brandmark">A</span><div><strong>AI 資訊報修與</strong><b>MIS 維運／資安監控中心</b></div></div>
-        <nav>{nav.map(([icon, label]) => <button key={label} className={active === label ? "active" : ""} onClick={() => setActive(label)}><span>{icon}</span>{label}</button>)}</nav>
-        <div className="sidebar-foot"><span className="online-dot" /> 系統連線正常<small>最後更新 11:42</small></div>
+        <div className="sidebar-brand">
+          <span className="sidebar-logo" aria-hidden="true"><Network /></span>
+          <div><strong>MIS 智慧營運中心</strong><small>AI · ITSM · SECURITY</small></div>
+        </div>
+        <nav>{nav.map(({ icon: Icon, label }) => <button key={label} className={active === label ? "active" : ""} onClick={() => setActive(label)} aria-current={active === label ? "page" : undefined}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}</nav>
+        <div className="sidebar-foot"><span className="status-line"><i className="online-dot" />系統連線正常</span><small>所有核心服務運作中</small></div>
       </aside>
 
       <section className="workspace">
         <header>
           <div><h1>早安，Yves</h1><p>資訊服務與資安狀態一目掌握</p></div>
           <div className="header-tools"><label className="search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="搜尋" placeholder="搜尋工單、設備或服務…" /></label><span className="access-badge"><i />已安全登入</span><button className="bell" onClick={() => setNotice(!notice)} aria-label="通知">♢{noticeCount > 0 && <i>{noticeCount}</i>}</button><button className="profile-button" onClick={() => setProfile(!profile)} aria-label="開啟管理人員選單"><span className="avatar">YT</span><span className="profile-copy"><b>TW_YVES</b><small>系統管理人員</small></span><span>⌄</span></button></div>
-          {search.trim() && <div className="search-results"><strong>搜尋結果</strong>{searchResults.length ? searchResults.map(row=><button key={row[0]} onClick={()=>{setDetail({title:row[0],body:`${row[1]}，申請人 ${row[2]}，指派對象 ${row[6]}。`});setSearch("");}}><b>{row[0]}</b><span>{row[1]}</span></button>) : <p>找不到相符工單</p>}</div>}
+          {search.trim() && <div className="search-results"><strong>搜尋結果</strong>{searchResults.length ? searchResults.map(ticket=><button key={ticket.id} onClick={()=>{void openTicket(ticket);setSearch("");}}><b>{ticket.ticketNumber}</b><span>{ticket.title}</span></button>) : <p>找不到相符工單</p>}</div>}
           {notice && <div className="notice"><strong>最新通知</strong><button onClick={()=>{setActive("設備與服務");setNotice(false)}}>VPN 閘道偵測到異常延遲</button><button onClick={()=>{setActive("資安監控");setNotice(false)}}>3 件高風險事件待確認</button><button className="read-all" onClick={()=>{setNoticeCount(0);setNotice(false);flash("通知已全部標示為已讀")}}>全部標示為已讀</button></div>}
           {profile && <div className="profile-menu"><div><span className="avatar">YT</span><p><strong>TW_YVES</strong><small>tsengs@twmns.com</small></p></div><span className="role-row"><b>角色</b><em>管理人員</em></span><button onClick={() => {setActive("權限管理");setProfile(false)}}>管理帳號與權限</button><button className="logout-button" onClick={logout}>安全登出</button></div>}
         </header>
@@ -349,27 +618,43 @@ export default function Home() {
           {active === "權限管理" && <PermissionConsole />}
           {active === "系統設定" && <SettingsConsole />}
           {active === "服務治理" && <GovernanceConsole onOpen={(title,body)=>setDetail({title,body})} onEmailTicket={simulateEmailTicket} />}
-          {["我的工單","設備與服務","資安監控"].includes(active) && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})}/>}
+          {["我的工單","設備與服務","資安監控"].includes(active) && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)}/>}
           <section className="ai-card card">
             <div className="ai-copy"><span className="eyebrow">AI SERVICE DESK</span><h2>用一句話，讓 AI 幫你報修</h2><p>描述問題，AI 將自動分類、判斷優先級並指派負責人</p>
-              {formMode && <div className="form-inline"><label>申請人<input value={requester} onChange={e=>setRequester(e.target.value)}/></label><label>問題類別<select value={category} onChange={e=>setCategory(e.target.value)}><option>自動判斷</option><option>網路</option><option>帳號權限</option><option>軟體</option><option>硬體</option></select></label></div>}
+              {formMode && <div className="repair-form-grid">
+                <label>申請人<input required value={requester} onChange={e=>setRequester(e.target.value)}/></label>
+                <label>聯絡信箱<input required type="email" value={requesterEmail} onChange={e=>setRequesterEmail(e.target.value)}/></label>
+                <label>部門<input required value={department} onChange={e=>setDepartment(e.target.value)}/></label>
+                <label>發生地點<input value={location} onChange={e=>setLocation(e.target.value)} placeholder="例：台北 17 樓"/></label>
+                <label>設備編號<input value={assetTag} onChange={e=>setAssetTag(e.target.value)} placeholder="選填，例如 NB-0123"/></label>
+                <label>問題類別<select value={category} onChange={e=>setCategory(e.target.value)}><option>自動判斷</option><option>網路連線</option><option>Microsoft 365</option><option>帳號權限</option><option>軟體</option><option>硬體</option><option>資安事件</option><option>其他</option></select></label>
+                <label>緊急程度<select value={priority} onChange={e=>setPriority(e.target.value)}><option>自動判斷</option><option>緊急</option><option>高</option><option>中</option><option>低</option></select></label>
+              </div>}
               <label className="issue-box"><textarea value={issue} maxLength={200} onChange={e => {setIssue(e.target.value); setDiagnosis(false)}} aria-label="問題描述" placeholder="請描述設備、錯誤訊息及發生時間" /><span>{count}/200</span></label>
               <div className="actions"><button className="primary" onClick={diagnose}>✦ 開始 AI 診斷</button><button className="link" onClick={() => {setFormMode(!formMode);setDiagnosis(false)}}>{formMode ? "返回 AI 快速報修" : "改用完整表單報修"} ›</button></div>
               <div className="suggestions">試試這些：{["無法登入", "網路異常", "軟體安裝"].map(x => <button key={x} onClick={() => setIssue(x)}>{x}</button>)}</div>
-              {diagnosis && <div className="diagnosis"><span>AI 分析完成</span><b>{category === "自動判斷" ? aiResult.category : category}</b><b className="warn">{aiResult.priority}優先</b><b>{aiResult.team}</b><button onClick={createTicket}>建立工單</button></div>}
+              {diagnosis && <div className="diagnosis"><span>AI 分析完成</span><b>{category === "自動判斷" ? aiResult.category : category}</b><b className="warn">{priority === "自動判斷" ? aiResult.priority : priority}優先</b><b>{aiResult.team}</b><button disabled={submittingTicket} onClick={()=>void createTicket()}>{submittingTicket ? "正在建立…" : "確認建立工單"}</button></div>}
             </div>
             <div className="ai-visual" aria-hidden="true"><div className="orb"><span>AI</span></div><i className="ring r1"/><i className="ring r2"/><i className="node n1"/><i className="node n2"/><i className="node n3"/></div>
           </section>
 
           <section className="service-card card"><div className="section-title"><h2>服務狀態</h2><span className="healthy"><i/>整體運作正常</span></div><div className="service-body"><div className="availability"><div><strong>99.94%</strong><span>可用率</span><small>過去 7 天</small></div></div><div className="services">{[["◎","Microsoft 365","正常"],["⌁","公司網路","正常"],["♧","VPN","部分異常"],["▱","ERP","正常"]].map(([i,n,s]) => <button key={n} onClick={()=>setDetail({title:n,body:`${n}目前狀態：${s}。最近一次健康檢查已完成，可前往設備與服務模組執行連線測試。`})}><b>{i}</b><span>{n}</span><em className={s !== "正常" ? "degraded" : ""}>{s}</em><i>›</i></button>)}</div></div><button className="more" onClick={()=>setActive("設備與服務")}>查看服務狀態詳情 ›</button></section>
 
-          <section className="metrics">{[["▣","待處理工單","12","較昨日 ↓ 3","blue"],["＋","今日新增","8","較昨日 ↑ 2","cyan"],["◷","平均回應","6 分鐘","較昨日 ↓ 2 分鐘","cyan"],["♢","高風險事件","3","較昨日 ↑ 1","red"]].map(([i,l,v,d,c]) => <article className="card metric" key={l}><span className={`metric-icon ${c}`}>{i}</span><div><p>{l}</p><strong>{v}</strong><small className={d.includes("↑") ? "up" : "down"}>{d}</small></div></article>)}</section>
+          <section className="metrics">{[["▣","待處理工單",String(tickets.filter(x=>x.status==="待處理").length),"D1 即時資料","blue"],["＋","我的工單",String(tickets.length),ticketsLoading?"正在同步":"已永久儲存","cyan"],["◷","處理中",String(tickets.filter(x=>x.status==="處理中").length),"可查看處理歷程","cyan"],["♢","高優先以上",String(tickets.filter(x=>x.priority==="高"||x.priority==="緊急").length),"優先追蹤","red"]].map(([i,l,v,d,c]) => <article className="card metric" key={l}><span className={`metric-icon ${c}`}>{i}</span><div><p>{l}</p><strong>{v}</strong><small>{d}</small></div></article>)}</section>
 
-          <section className="tickets card"><div className="section-title"><h2>待處理工單</h2><button onClick={()=>setActive("我的工單")}>查看全部 ›</button></div><div className="table-wrap"><table><thead><tr>{["工單編號","標題","申請人","來源","優先級","建立時間","指派對象"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{tickets.map(row => <tr key={row[0]} onClick={()=>setDetail({title:row[0],body:`${row[1]}，申請人 ${row[2]}，目前指派給 ${row[6]}。`})}>{row.map((v,i)=><td key={i}>{i===0?<a>{v}</a>:i===4?<span className={`priority p-${v}`}>{v}</span>:v}</td>)}</tr>)}</tbody></table></div></section>
+          <section className="tickets card"><div className="section-title"><h2>我的最新工單</h2><button onClick={()=>setActive("我的工單")}>查看全部 ›</button></div><div className="table-wrap"><table><thead><tr>{["工單編號","標題","狀態","來源","優先級","建立時間","指派對象"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{tickets.length ? tickets.slice(0,8).map(ticket => <tr key={ticket.id} onClick={()=>void openTicket(ticket)}><td><a>{ticket.ticketNumber}</a></td><td>{ticket.title}</td><td>{ticket.status}</td><td>{ticket.source}</td><td><span className={`priority p-${ticket.priority}`}>{ticket.priority}</span></td><td>{new Date(ticket.createdAt).toLocaleString("zh-TW",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>{ticket.assignedTeam}</td></tr>) : <tr><td colSpan={7}><div className="empty-state"><b>{ticketsLoading ? "正在讀取工單…" : "尚未建立任何工單"}</b><span>{ticketsLoading ? "請稍候" : "使用上方 AI 報修即可建立正式工單。"}</span></div></td></tr>}</tbody></table></div></section>
 
           <section className="risk card"><div className="section-title"><h2>資安風險摘要</h2><button onClick={()=>setActive("資安監控")}>查看資安監控 ›</button></div><div className="risk-grid"><div className="chart"><p>風險事件趨勢（近 7 天）</p><div className="chart-area"><span className="y y40">40</span><span className="y y20">20</span><span className="y y0">0</span><svg viewBox="0 0 420 150" role="img" aria-label="近七日風險事件由17件上升至36件"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2f80ff" stopOpacity=".3"/><stop offset="1" stopColor="#2f80ff" stopOpacity="0"/></linearGradient></defs><path d="M20 105 L80 78 L140 103 L200 88 L260 72 L320 55 L390 25 L390 130 L20 130Z" fill="url(#fill)"/><polyline points="20,105 80,78 140,103 200,88 260,72 320,55 390,25" fill="none" stroke="#1769e0" strokeWidth="3"/>{[[20,105],[80,78],[140,103],[200,88],[260,72],[320,55],[390,25]].map(([x,y])=><circle key={x} cx={x} cy={y} r="5" fill="#fff" stroke="#1769e0" strokeWidth="3"/>)}</svg><div className="dates"><span>7/12</span><span>7/13</span><span>7/14</span><span>7/15</span><span>7/16</span><span>7/17</span><span>7/18</span></div></div></div><div className="risks"><p>主要風險項目</p>{[["●","異常登入嘗試","多次失敗登入來自非辦公地區","12","critical"],["◉","弱點掃描待修補","部分端點存在高風險弱點","7","warning"],["✉","惡意郵件偵測","可疑郵件已攔截","5","mail"]].map(([i,t,s,n,c])=><button key={t} className={c} onClick={()=>setDetail({title:t,body:`${s}，目前共 ${n} 個事件。可前往資安監控模組進行調查及處置。`})}><i>{i}</i><span><b>{t}</b><small>{s}</small></span><em>{n}</em></button>)}</div></div></section>
         </div>
         {detail && <div className="modal-backdrop" onMouseDown={()=>setDetail(null)}><div className="modal card detail-modal" onMouseDown={e=>e.stopPropagation()}><span className="eyebrow">DETAIL & ACTION</span><h3>{detail.title}</h3><p>{detail.body}</p><label className="action-note">處理備註<textarea placeholder="輸入本次測試或處置結果"/></label><div className="detail-actions"><button className="secondary" onClick={()=>setDetail(null)}>關閉</button><button className="secondary" onClick={()=>{setDetail(null);flash(`${detail.title} 已轉派給第二線維運`)}}>轉派處理</button><button className="primary" onClick={()=>{setDetail(null);flash(`${detail.title} 已完成測試並寫入操作紀錄`)}}>完成測試</button></div></div></div>}
+        {ticketDetail && <div className="modal-backdrop" onMouseDown={()=>setTicketDetail(null)}><div className="modal card ticket-detail-modal" onMouseDown={e=>e.stopPropagation()}>
+          <div className="ticket-detail-head"><div><span className="eyebrow">TICKET TRACKING</span><h3>{ticketDetail.ticket.ticketNumber}</h3><p>{ticketDetail.ticket.title}</p></div><span className={`priority p-${ticketDetail.ticket.priority}`}>{ticketDetail.ticket.priority}優先</span></div>
+          <dl className="ticket-facts"><div><dt>申請人</dt><dd>{ticketDetail.ticket.requesterName}／{ticketDetail.ticket.department}</dd></div><div><dt>聯絡信箱</dt><dd>{ticketDetail.ticket.requesterEmail}</dd></div><div><dt>類別</dt><dd>{ticketDetail.ticket.category}</dd></div><div><dt>指派對象</dt><dd>{ticketDetail.ticket.assignedTeam}</dd></div><div><dt>地點</dt><dd>{ticketDetail.ticket.location || "未填寫"}</dd></div><div><dt>設備編號</dt><dd>{ticketDetail.ticket.assetTag || "未填寫"}</dd></div></dl>
+          <div className="ticket-description"><b>問題描述</b><p>{ticketDetail.ticket.description}</p></div>
+          <div className="ticket-update"><label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label><label>處理備註<textarea value={ticketNote} onChange={e=>setTicketNote(e.target.value)} placeholder="記錄處理進度、測試結果或解決方式"/></label></div>
+          <div className="ticket-timeline"><h4>處理歷程</h4>{ticketDetail.events.map((event,index)=><article key={`${event.createdAt}-${index}`}><i/><div><b>{event.toStatus ? `${event.fromStatus} → ${event.toStatus}` : "工單已建立"}</b><p>{event.note}</p><small>{event.actorName}・{new Date(event.createdAt).toLocaleString("zh-TW")}</small></div></article>)}</div>
+          <div className="detail-actions"><button className="secondary" onClick={()=>setTicketDetail(null)}>關閉</button><button className="primary" disabled={updatingTicket} onClick={()=>void updateTicket()}>{updatingTicket ? "正在儲存…" : "更新工單與歷程"}</button></div>
+        </div></div>}
         {toast && <div className="toast">✓ {toast}</div>}
       </section>
     </main>
