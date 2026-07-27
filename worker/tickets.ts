@@ -16,15 +16,6 @@ type TicketPayload = {
   actorName?: unknown;
 };
 
-const jsonHeaders = {
-  "content-type": "application/json; charset=utf-8",
-  "cache-control": "no-store",
-};
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: jsonHeaders });
-}
-
 function textValue(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -49,7 +40,11 @@ function validEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-async function createTicket(request: Request, db: D1Database) {
+async function createTicket(
+  request: Request,
+  db: D1Database,
+  identity: Identity,
+) {
   let payload: TicketPayload;
   try {
     payload = (await request.json()) as TicketPayload;
@@ -57,10 +52,11 @@ async function createTicket(request: Request, db: D1Database) {
     return json({ error: "INVALID_JSON", message: "報修資料格式不正確。" }, 400);
   }
 
-  const requesterToken = textValue(payload.requesterToken, 160);
-  const requesterName = textValue(payload.requesterName, 80);
-  const requesterEmail = textValue(payload.requesterEmail, 160).toLowerCase();
-  const department = textValue(payload.department, 80);
+  const requesterToken = identity.email;
+  const requesterName = identity.displayName;
+  const requesterEmail = identity.email;
+  const department =
+    identity.department || textValue(payload.department, 80) || "未設定";
   const title = textValue(payload.title, 120);
   const description = textValue(payload.description, 3000);
   const category = textValue(payload.category, 40) || "其他";
@@ -74,7 +70,6 @@ async function createTicket(request: Request, db: D1Database) {
     !requesterToken ||
     !requesterName ||
     !validEmail(requesterEmail) ||
-    !department ||
     title.length < 4 ||
     description.length < 10 ||
     !["緊急", "高", "中", "低"].includes(priority)
@@ -130,6 +125,10 @@ async function createTicket(request: Request, db: D1Database) {
         )
         .bind(crypto.randomUUID(), id, requesterName, initialNote, now),
     ]);
+    await audit(db, identity, "create", "ticket", id, {
+      ticketNumber: number,
+      priority,
+    });
   } catch (error) {
     console.error("ticket insert failed", error);
     return json(
@@ -165,16 +164,13 @@ async function createTicket(request: Request, db: D1Database) {
   );
 }
 
-async function listTickets(request: Request, db: D1Database) {
-  const token = textValue(
-    request.headers.get("x-requester-token") ??
-      new URL(request.url).searchParams.get("requesterToken"),
-    160,
-  );
-  if (!token) {
-    return json({ error: "MISSING_IDENTITY", message: "缺少工單查詢識別資料。" }, 400);
-  }
-  const requesterHash = await sha256(token);
+async function listTickets(
+  request: Request,
+  db: D1Database,
+  identity: Identity,
+) {
+  const requesterHash = await sha256(identity.email);
+  const all = hasPermission(identity, "tickets.read.all");
   const result = await db
     .prepare(
       `SELECT id,
@@ -194,19 +190,23 @@ async function listTickets(request: Request, db: D1Database) {
               created_at AS createdAt,
               updated_at AS updatedAt
        FROM tickets
-       WHERE requester_hash = ?
+       WHERE (? = 1 OR requester_hash = ?)
        ORDER BY created_at DESC
        LIMIT 100`,
     )
-    .bind(requesterHash)
+    .bind(all ? 1 : 0, requesterHash)
     .all();
   return json({ tickets: result.results });
 }
 
-async function getTicket(request: Request, db: D1Database, id: string) {
-  const token = textValue(request.headers.get("x-requester-token"), 160);
-  if (!token) return json({ error: "MISSING_IDENTITY", message: "缺少查詢識別資料。" }, 400);
-  const requesterHash = await sha256(token);
+async function getTicket(
+  request: Request,
+  db: D1Database,
+  id: string,
+  identity: Identity,
+) {
+  const requesterHash = await sha256(identity.email);
+  const all = hasPermission(identity, "tickets.read.all");
   const [ticket, events] = await db.batch([
     db
       .prepare(
@@ -215,9 +215,9 @@ async function getTicket(request: Request, db: D1Database, id: string) {
                 category, priority, source, location, asset_tag AS assetTag,
                 assigned_team AS assignedTeam, status,
                 created_at AS createdAt, updated_at AS updatedAt
-         FROM tickets WHERE id = ? AND requester_hash = ?`,
+         FROM tickets WHERE id = ? AND (? = 1 OR requester_hash = ?)`,
       )
-      .bind(id, requesterHash),
+      .bind(id, all ? 1 : 0, requesterHash),
     db
       .prepare(
         `SELECT event_type AS eventType, from_status AS fromStatus,
@@ -232,24 +232,27 @@ async function getTicket(request: Request, db: D1Database, id: string) {
   return json({ ticket: row, events: events.results });
 }
 
-async function updateTicket(request: Request, db: D1Database, id: string) {
+async function updateTicket(
+  request: Request,
+  db: D1Database,
+  id: string,
+  identity: Identity,
+) {
   let payload: TicketPayload;
   try {
     payload = (await request.json()) as TicketPayload;
   } catch {
     return json({ error: "INVALID_JSON", message: "更新資料格式不正確。" }, 400);
   }
-  const token = textValue(payload.requesterToken, 160);
   const nextStatus = textValue(payload.status, 20);
   const note = textValue(payload.note, 1000);
-  const actorName = textValue(payload.actorName, 80) || "TW_YVES";
-  if (!token || !["待處理", "處理中", "已解決", "已結案"].includes(nextStatus)) {
+  const actorName = identity.displayName;
+  if (!["待處理", "處理中", "已解決", "已結案"].includes(nextStatus)) {
     return json({ error: "INVALID_UPDATE", message: "工單更新資料不完整。" }, 400);
   }
-  const requesterHash = await sha256(token);
   const current = await db
-    .prepare(`SELECT status FROM tickets WHERE id = ? AND requester_hash = ?`)
-    .bind(id, requesterHash)
+    .prepare(`SELECT status FROM tickets WHERE id = ?`)
+    .bind(id)
     .first<{ status: string }>();
   if (!current) return json({ error: "NOT_FOUND", message: "找不到此工單。" }, 404);
   const now = new Date().toISOString();
@@ -273,6 +276,10 @@ async function updateTicket(request: Request, db: D1Database, id: string) {
         now,
       ),
   ]);
+  await audit(db, identity, "update_status", "ticket", id, {
+    from: current.status,
+    to: nextStatus,
+  });
   return json({ ok: true, status: nextStatus, updatedAt: now, message: "工單狀態與處理紀錄已更新。" });
 }
 
@@ -281,18 +288,37 @@ export function handleTicketRequest(
   db: D1Database,
   ticketId?: string,
 ) {
-  const task =
-    request.method === "POST" && !ticketId
-      ? createTicket(request, db)
+  const task = (async () => {
+    const permission =
+      request.method === "PATCH" ? "tickets.update" : request.method === "POST"
+        ? "tickets.create"
+        : "tickets.read.own";
+    const auth =
+      request.method === "PATCH"
+        ? await requirePermission(request, db, permission)
+        : await requireIdentity(request, db);
+    if (!auth.identity) return auth.response!;
+    if (auth.response) return auth.response;
+    return request.method === "POST" && !ticketId
+      ? createTicket(request, db, auth.identity)
       : request.method === "GET" && ticketId
-        ? getTicket(request, db, ticketId)
+        ? getTicket(request, db, ticketId, auth.identity)
         : request.method === "GET"
-          ? listTickets(request, db)
+          ? listTickets(request, db, auth.identity)
           : request.method === "PATCH" && ticketId
-            ? updateTicket(request, db, ticketId)
+            ? updateTicket(request, db, ticketId, auth.identity)
             : json({ error: "METHOD_NOT_ALLOWED", message: "不支援此操作。" }, 405);
+  })();
   return Promise.resolve(task).catch((error) => {
     console.error("ticket request failed", error);
     return json({ error: "TICKET_REQUEST_FAILED", message: "工單服務暫時無法使用。" }, 500);
   });
 }
+import {
+  audit,
+  hasPermission,
+  json,
+  requireIdentity,
+  requirePermission,
+  type Identity,
+} from "./auth";

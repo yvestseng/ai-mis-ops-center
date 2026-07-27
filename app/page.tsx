@@ -13,6 +13,12 @@ import {
   UserRoundCog,
   type LucideIcon,
 } from "lucide-react";
+import {
+  DashboardReport,
+  RbacConsole,
+  ResourceConsole,
+  type SessionUser,
+} from "./admin-data-console";
 
 type Ticket = {
   id: string;
@@ -47,6 +53,7 @@ const nav: { icon: LucideIcon; label: string }[] = [
   { icon: Sparkles, label: "AI 資訊報修" },
   { icon: ClipboardList, label: "我的工單" },
   { icon: Server, label: "設備與服務" },
+  { icon: Server, label: "服務管理" },
   { icon: ShieldCheck, label: "資安監控" },
   { icon: BadgeCheck, label: "服務治理" },
   { icon: UserRoundCog, label: "權限管理" },
@@ -64,6 +71,8 @@ function createClientId() {
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+// Legacy local-only console retained for migration reference.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PermissionConsole() {
   const [users, setUsers] = useState(() => {
     if (typeof window !== "undefined") {
@@ -125,7 +134,7 @@ function SettingsConsole() {
     {tab === "AI 與派工" && <><h3>AI 與自動派工</h3><p>控制報修分析與工作分派流程</p><div className="setting-rows"><SettingRow title="AI 自動分類" note="分析問題描述並判斷工單類別" value={settings.ai} onChange={()=>set("ai",!settings.ai)}/><SettingRow title="依技能自動派工" note="依類別、負載與值班表指派負責人" value={settings.autoAssign} onChange={()=>set("autoAssign",!settings.autoAssign)}/><label>最低分類信心值<input type="range" min="50" max="100" value={settings.confidence} onChange={e=>set("confidence",e.target.value)}/><b>{settings.confidence}%</b></label></div></>}
     {tab === "通知設定" && <><h3>通知設定</h3><p>設定事件與工單通知管道</p><div className="setting-rows"><SettingRow title="電子郵件通知" note="工單建立、指派與狀態異動時寄送" value={settings.email} onChange={()=>set("email",!settings.email)}/><SettingRow title="高風險即時告警" note="偵測高風險資安事件時通知管理人員" value={settings.security} onChange={()=>set("security",!settings.security)}/><SettingRow title="每日營運摘要" note="每日 08:30 寄送服務與資安摘要" value={settings.daily} onChange={()=>set("daily",!settings.daily)}/></div></>}
     {tab === "資安設定" && <><h3>資安與稽核</h3><p>管理登入工作階段及操作紀錄</p><div className="form-grid"><label>工作階段逾時（小時）<input type="number" value={settings.session} onChange={e=>set("session",e.target.value)}/></label><label>稽核紀錄保留（天）<input type="number" value={settings.retention} onChange={e=>set("retention",e.target.value)}/></label></div><div className="security-banner"><b>登入保護已啟用</b><span>僅授權帳號可存取，管理操作會記錄帳號與時間。</span></div></>}
-    {tab === "系統資訊" && <><h3>系統資訊</h3><p>目前執行環境與服務狀態</p><dl className="system-info"><div><dt>系統版本</dt><dd>v2.1.0</dd></div><div><dt>執行環境</dt><dd>Production</dd></div><div><dt>AI 服務</dt><dd className="ok">● 正常</dd></div><div><dt>最後設定更新</dt><dd>2026/07/18 14:08</dd></div></dl><button className="secondary" onClick={()=>setSaved("連線測試完成：所有服務正常")}>執行服務連線測試</button></>}
+    {tab === "系統資訊" && <><h3>系統資訊</h3><p>目前執行環境與服務狀態</p><dl className="system-info"><div><dt>系統版本</dt><dd>v0.4.2</dd></div><div><dt>執行環境</dt><dd>Test</dd></div><div><dt>AI 服務</dt><dd className="ok">● 正常</dd></div><div><dt>資料層</dt><dd>Cloudflare D1</dd></div></dl><button className="secondary" onClick={()=>setSaved("連線測試完成：所有服務正常")}>執行服務連線測試</button></>}
     <div className="settings-footer"><span>變更將記錄於系統稽核日誌</span><button className="primary" onClick={save}>儲存設定</button></div></div></div>{saved && <div className="toast">✓ {saved}</div>}</section>;
 }
 
@@ -346,27 +355,62 @@ function ModuleConsole({ module, tickets, onOpen, onTicket }: { module: string; 
   </section>;
 }
 
-function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [account, setAccount] = useState("TW_YVES");
-  const [password, setPassword] = useState("MIS2026!");
-  const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+const testAccounts = [
+  { role: "系統管理員", username: "admin01", password: "Admin@2026" },
+  { role: "MIS 維運人員", username: "mis01", password: "Mis@2026" },
+  { role: "一般使用者", username: "user01", password: "User@2026" },
+];
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+function LoginScreen({
+  authIssue,
+  onAuthenticated,
+}: {
+  authIssue: string;
+  onAuthenticated: (user: SessionUser) => void;
+}) {
+  const [username, setUsername] = useState("admin01");
+  const [password, setPassword] = useState("Admin@2026");
+  const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState(authIssue);
+  const [loading, setLoading] = useState(false);
+
+  async function login(event: React.FormEvent) {
     event.preventDefault();
-    if (account.trim().toLowerCase() !== "tw_yves" || password !== "MIS2026!") {
-      setError("帳號或密碼不正確，請使用畫面下方的測試帳號。");
-      return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const contentType = response.headers.get("content-type") || "";
+      const result = (contentType.includes("application/json")
+        ? await response.json()
+        : {
+            message:
+              response.status >= 500
+                ? "登入服務暫時無法使用，請稍後再試。"
+                : "登入服務回應格式異常。",
+          }) as {
+        user?: SessionUser;
+        message?: string;
+      };
+      if (!response.ok || !result.user) {
+        throw new Error(result.message || "登入失敗。");
+      }
+      onAuthenticated(result.user);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "登入失敗。");
+    } finally {
+      setLoading(false);
     }
-    setError("");
-    setSubmitting(true);
-    window.setTimeout(() => {
-      const storage = remember ? window.localStorage : window.sessionStorage;
-      storage.setItem("mis-authenticated", "true");
-      onLogin();
-    }, 450);
+  }
+
+  function selectAccount(account: (typeof testAccounts)[number]) {
+    setUsername(account.username);
+    setPassword(account.password);
+    setMessage("");
   }
 
   return <main className="login-page">
@@ -378,23 +422,29 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
       <p className="login-copyright">© 2026 AI MIS Operations Center</p>
     </section>
     <section className="login-panel">
-      <form className="login-card" onSubmit={submit}>
+      <div className="login-card">
         <span className="login-shield">✓</span>
-        <div><span className="eyebrow">SECURE ACCESS</span><h2>登入系統</h2><p>請輸入您的企業帳號以繼續</p></div>
-        <label>使用者帳號<div className="login-input"><span>♙</span><input autoFocus autoComplete="username" value={account} onChange={e=>setAccount(e.target.value)} placeholder="請輸入公司帳號"/></div></label>
-        <label>密碼<div className="login-input"><span>●</span><input type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="請輸入密碼"/><button type="button" onClick={()=>setShowPassword(!showPassword)} aria-label={showPassword ? "隱藏密碼" : "顯示密碼"}>{showPassword ? "隱藏" : "顯示"}</button></div></label>
-        <div className="login-options"><label><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> 保持登入</label><button type="button" onClick={()=>setError("展示環境請聯絡 MIS 管理人員重設密碼。")}>忘記密碼？</button></div>
-        {error && <div className="login-error" role="alert">⚠ {error}</div>}
-        <button className="login-submit" disabled={submitting}>{submitting ? "正在驗證…" : "安全登入"} <span>→</span></button>
-        <div className="demo-account"><b>展示環境測試帳號</b><span>帳號：TW_YVES　密碼：MIS2026!</span></div>
-        <p className="login-security">🔒 此連線受安全保護，所有登入活動將記錄於稽核日誌。</p>
-      </form>
+        <div><span className="eyebrow">RBAC TEST ACCESS</span><h2>多角色測試登入</h2><p>使用內建測試帳號驗證不同角色的選單、資料範圍與操作權限。</p></div>
+        <div className="test-account-grid">
+          {testAccounts.map((account) => <button type="button" key={account.username} className={username === account.username ? "selected" : ""} onClick={() => selectAccount(account)}><b>{account.role}</b><span>{account.username}</span><small>套用測試帳密</small></button>)}
+        </div>
+        <form className="login-form" onSubmit={(event) => void login(event)}>
+          <label>測試帳號<div className="login-input"><span>◎</span><input required autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></div></label>
+          <label>密碼<div className="login-input"><span>●</span><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "隱藏" : "顯示"}</button></div></label>
+          {message && <div className="login-error" role="alert"><b>無法登入</b><span>{message}</span></div>}
+          <button className="login-submit" disabled={loading}>{loading ? "正在驗證…" : "登入測試系統"} <span>→</span></button>
+        </form>
+        <div className="demo-account"><b>測試環境提醒</b><span>測試密碼會經 PBKDF2 雜湊後保存，登入狀態由伺服器端工作階段驗證。正式導入時再切換為 Microsoft Entra ID。</span></div>
+        <p className="login-security">🔒 請勿在本測試系統使用公司正式密碼。</p>
+      </div>
     </section>
   </main>;
 }
 
 export default function Home() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [session, setSession] = useState<SessionUser | null>(null);
+  const [authIssue, setAuthIssue] = useState("");
   const [active, setActive] = useState("營運總覽");
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
@@ -447,10 +497,35 @@ export default function Home() {
     }
   }
   useEffect(() => {
-    const restoreSession = window.setTimeout(() => {
-      setAuthenticated(window.localStorage.getItem("mis-authenticated") === "true" || window.sessionStorage.getItem("mis-authenticated") === "true");
-    }, 0);
-    return () => window.clearTimeout(restoreSession);
+    let activeRequest = true;
+    fetch("/api/session", { cache: "no-store" })
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          user?: SessionUser;
+          error?: string;
+          message?: string;
+        };
+        if (!response.ok) {
+          if (result.error === "ACCOUNT_NOT_AUTHORIZED") {
+            setAuthIssue(result.message || "目前登入帳號未在授權清單中。");
+          }
+          return null;
+        }
+        setAuthIssue("");
+        return result;
+      })
+      .then((result) => {
+        if (!activeRequest) return;
+        setSession(result?.user || null);
+        if (result?.user) {
+          setRequester(result.user.displayName);
+          setRequesterEmail(result.user.email);
+          setDepartment(result.user.department || "未設定");
+        }
+        setAuthenticated(Boolean(result?.user));
+      })
+      .catch(() => activeRequest && setAuthenticated(false));
+    return () => { activeRequest = false; };
   }, []);
   useEffect(() => {
     if (!authenticated) return;
@@ -465,11 +540,12 @@ export default function Home() {
     setDiagnosis(true);
   }
   function flash(message:string) { setToast(message); window.setTimeout(() => setToast(""), 2400); }
-  function logout() {
-    window.localStorage.removeItem("mis-authenticated");
-    window.sessionStorage.removeItem("mis-authenticated");
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setProfile(false);
+    setSession(null);
     setAuthenticated(false);
+    setTickets([]);
   }
   async function postTicket(values: Record<string, unknown>) {
     const response = await fetch("/api/tickets", {
@@ -590,9 +666,41 @@ export default function Home() {
     }
   }
   const searchResults = search.trim() ? tickets.filter(x => Object.values(x).join(" ").toLowerCase().includes(search.toLowerCase())).slice(0,5) : [];
+  const permissionForNav: Record<string, string> = {
+    "營運總覽": "dashboard.read",
+    "AI 資訊報修": "tickets.create",
+    "我的工單": "tickets.read.own",
+    "設備與服務": "assets.read",
+    "服務管理": "services.write",
+    "資安監控": "services.read",
+    "服務治理": "surveys.read",
+    "權限管理": "rbac.manage",
+    "系統設定": "rbac.manage",
+  };
+  const visibleNav = nav.filter((item) =>
+    session?.roleCode === "admin" ||
+    session?.permissions.includes(permissionForNav[item.label]),
+  );
+  const canUpdateTickets =
+    session?.roleCode === "admin" ||
+    session?.permissions.includes("tickets.update");
+  const canWriteAssets =
+    session?.roleCode === "admin" ||
+    session?.permissions.includes("assets.write");
+  const canWriteServices =
+    session?.roleCode === "admin" ||
+    session?.permissions.includes("services.write");
+  const initials = (session?.displayName || "U").slice(0, 2).toUpperCase();
 
   if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span></main>;
-  if (!authenticated) return <LoginScreen onLogin={() => setAuthenticated(true)} />;
+  if (!authenticated) return <LoginScreen authIssue={authIssue} onAuthenticated={(user) => {
+    setSession(user);
+    setRequester(user.displayName);
+    setRequesterEmail(user.email);
+    setDepartment(user.department || "未設定");
+    setAuthenticated(true);
+    setActive("營運總覽");
+  }} />;
 
   return (
     <main className="shell">
@@ -601,24 +709,26 @@ export default function Home() {
           <span className="sidebar-logo" aria-hidden="true"><Network /></span>
           <div><strong>MIS 智慧營運中心</strong><small>AI · ITSM · SECURITY</small></div>
         </div>
-        <nav>{nav.map(({ icon: Icon, label }) => <button key={label} className={active === label ? "active" : ""} onClick={() => setActive(label)} aria-current={active === label ? "page" : undefined}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}</nav>
+        <nav>{visibleNav.map(({ icon: Icon, label }) => <button key={label} className={active === label ? "active" : ""} onClick={() => setActive(label)} aria-current={active === label ? "page" : undefined}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}</nav>
         <div className="sidebar-foot"><span className="status-line"><i className="online-dot" />系統連線正常</span><small>所有核心服務運作中</small></div>
       </aside>
 
       <section className="workspace">
         <header>
-          <div><h1>早安，Yves</h1><p>資訊服務與資安狀態一目掌握</p></div>
-          <div className="header-tools"><label className="search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="搜尋" placeholder="搜尋工單、設備或服務…" /></label><span className="access-badge"><i />已安全登入</span><button className="bell" onClick={() => setNotice(!notice)} aria-label="通知">♢{noticeCount > 0 && <i>{noticeCount}</i>}</button><button className="profile-button" onClick={() => setProfile(!profile)} aria-label="開啟管理人員選單"><span className="avatar">YT</span><span className="profile-copy"><b>TW_YVES</b><small>系統管理人員</small></span><span>⌄</span></button></div>
+          <div><h1>您好，{session?.displayName}</h1><p>資訊服務與資安狀態一目掌握</p></div>
+          <div className="header-tools"><label className="search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="搜尋" placeholder="搜尋工單、設備或服務…" /></label><span className="access-badge"><i />RBAC 已驗證</span><button className="bell" onClick={() => setNotice(!notice)} aria-label="通知">♢{noticeCount > 0 && <i>{noticeCount}</i>}</button><button className="profile-button" onClick={() => setProfile(!profile)} aria-label="開啟管理人員選單"><span className="avatar">{initials}</span><span className="profile-copy"><b>{session?.displayName}</b><small>{session?.roleName}</small></span><span>⌄</span></button></div>
           {search.trim() && <div className="search-results"><strong>搜尋結果</strong>{searchResults.length ? searchResults.map(ticket=><button key={ticket.id} onClick={()=>{void openTicket(ticket);setSearch("");}}><b>{ticket.ticketNumber}</b><span>{ticket.title}</span></button>) : <p>找不到相符工單</p>}</div>}
           {notice && <div className="notice"><strong>最新通知</strong><button onClick={()=>{setActive("設備與服務");setNotice(false)}}>VPN 閘道偵測到異常延遲</button><button onClick={()=>{setActive("資安監控");setNotice(false)}}>3 件高風險事件待確認</button><button className="read-all" onClick={()=>{setNoticeCount(0);setNotice(false);flash("通知已全部標示為已讀")}}>全部標示為已讀</button></div>}
-          {profile && <div className="profile-menu"><div><span className="avatar">YT</span><p><strong>TW_YVES</strong><small>tsengs@twmns.com</small></p></div><span className="role-row"><b>角色</b><em>管理人員</em></span><button onClick={() => {setActive("權限管理");setProfile(false)}}>管理帳號與權限</button><button className="logout-button" onClick={logout}>安全登出</button></div>}
+          {profile && <div className="profile-menu"><div><span className="avatar">{initials}</span><p><strong>{session?.displayName}</strong><small>{session?.username} · {session?.email}</small></p></div><span className="role-row"><b>角色</b><em>{session?.roleName}</em></span>{(session?.roleCode === "admin" || session?.permissions.includes("rbac.manage")) && <button onClick={() => {setActive("權限管理");setProfile(false)}}>管理帳號與權限</button>}<button className="logout-button" onClick={() => void logout()}>安全登出</button></div>}
         </header>
 
         <div className={`dashboard ${active !== "營運總覽" ? "admin-mode" : ""}`}>
-          {active === "權限管理" && <PermissionConsole />}
+          {active === "權限管理" && <RbacConsole />}
           {active === "系統設定" && <SettingsConsole />}
           {active === "服務治理" && <GovernanceConsole onOpen={(title,body)=>setDetail({title,body})} onEmailTicket={simulateEmailTicket} />}
-          {["我的工單","設備與服務","資安監控"].includes(active) && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)}/>}
+          {active === "設備與服務" && <ResourceConsole entity="assets" canWrite={Boolean(canWriteAssets)} />}
+          {active === "服務管理" && <ResourceConsole entity="services" canWrite={Boolean(canWriteServices)} />}
+          {["我的工單","資安監控"].includes(active) && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)}/>}
           <section className="ai-card card">
             <div className="ai-copy"><span className="eyebrow">AI SERVICE DESK</span><h2>用一句話，讓 AI 幫你報修</h2><p>描述問題，AI 將自動分類、判斷優先級並指派負責人</p>
               {formMode && <div className="repair-form-grid">
@@ -645,15 +755,16 @@ export default function Home() {
           <section className="tickets card"><div className="section-title"><h2>我的最新工單</h2><button onClick={()=>setActive("我的工單")}>查看全部 ›</button></div><div className="table-wrap"><table><thead><tr>{["工單編號","標題","狀態","來源","優先級","建立時間","指派對象"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{tickets.length ? tickets.slice(0,8).map(ticket => <tr key={ticket.id} onClick={()=>void openTicket(ticket)}><td><a>{ticket.ticketNumber}</a></td><td>{ticket.title}</td><td>{ticket.status}</td><td>{ticket.source}</td><td><span className={`priority p-${ticket.priority}`}>{ticket.priority}</span></td><td>{new Date(ticket.createdAt).toLocaleString("zh-TW",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>{ticket.assignedTeam}</td></tr>) : <tr><td colSpan={7}><div className="empty-state"><b>{ticketsLoading ? "正在讀取工單…" : "尚未建立任何工單"}</b><span>{ticketsLoading ? "請稍候" : "使用上方 AI 報修即可建立正式工單。"}</span></div></td></tr>}</tbody></table></div></section>
 
           <section className="risk card"><div className="section-title"><h2>資安風險摘要</h2><button onClick={()=>setActive("資安監控")}>查看資安監控 ›</button></div><div className="risk-grid"><div className="chart"><p>風險事件趨勢（近 7 天）</p><div className="chart-area"><span className="y y40">40</span><span className="y y20">20</span><span className="y y0">0</span><svg viewBox="0 0 420 150" role="img" aria-label="近七日風險事件由17件上升至36件"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2f80ff" stopOpacity=".3"/><stop offset="1" stopColor="#2f80ff" stopOpacity="0"/></linearGradient></defs><path d="M20 105 L80 78 L140 103 L200 88 L260 72 L320 55 L390 25 L390 130 L20 130Z" fill="url(#fill)"/><polyline points="20,105 80,78 140,103 200,88 260,72 320,55 390,25" fill="none" stroke="#1769e0" strokeWidth="3"/>{[[20,105],[80,78],[140,103],[200,88],[260,72],[320,55],[390,25]].map(([x,y])=><circle key={x} cx={x} cy={y} r="5" fill="#fff" stroke="#1769e0" strokeWidth="3"/>)}</svg><div className="dates"><span>7/12</span><span>7/13</span><span>7/14</span><span>7/15</span><span>7/16</span><span>7/17</span><span>7/18</span></div></div></div><div className="risks"><p>主要風險項目</p>{[["●","異常登入嘗試","多次失敗登入來自非辦公地區","12","critical"],["◉","弱點掃描待修補","部分端點存在高風險弱點","7","warning"],["✉","惡意郵件偵測","可疑郵件已攔截","5","mail"]].map(([i,t,s,n,c])=><button key={t} className={c} onClick={()=>setDetail({title:t,body:`${s}，目前共 ${n} 個事件。可前往資安監控模組進行調查及處置。`})}><i>{i}</i><span><b>{t}</b><small>{s}</small></span><em>{n}</em></button>)}</div></div></section>
+          {active === "營運總覽" && <DashboardReport />}
         </div>
         {detail && <div className="modal-backdrop" onMouseDown={()=>setDetail(null)}><div className="modal card detail-modal" onMouseDown={e=>e.stopPropagation()}><span className="eyebrow">DETAIL & ACTION</span><h3>{detail.title}</h3><p>{detail.body}</p><label className="action-note">處理備註<textarea placeholder="輸入本次測試或處置結果"/></label><div className="detail-actions"><button className="secondary" onClick={()=>setDetail(null)}>關閉</button><button className="secondary" onClick={()=>{setDetail(null);flash(`${detail.title} 已轉派給第二線維運`)}}>轉派處理</button><button className="primary" onClick={()=>{setDetail(null);flash(`${detail.title} 已完成測試並寫入操作紀錄`)}}>完成測試</button></div></div></div>}
         {ticketDetail && <div className="modal-backdrop" onMouseDown={()=>setTicketDetail(null)}><div className="modal card ticket-detail-modal" onMouseDown={e=>e.stopPropagation()}>
           <div className="ticket-detail-head"><div><span className="eyebrow">TICKET TRACKING</span><h3>{ticketDetail.ticket.ticketNumber}</h3><p>{ticketDetail.ticket.title}</p></div><span className={`priority p-${ticketDetail.ticket.priority}`}>{ticketDetail.ticket.priority}優先</span></div>
           <dl className="ticket-facts"><div><dt>申請人</dt><dd>{ticketDetail.ticket.requesterName}／{ticketDetail.ticket.department}</dd></div><div><dt>聯絡信箱</dt><dd>{ticketDetail.ticket.requesterEmail}</dd></div><div><dt>類別</dt><dd>{ticketDetail.ticket.category}</dd></div><div><dt>指派對象</dt><dd>{ticketDetail.ticket.assignedTeam}</dd></div><div><dt>地點</dt><dd>{ticketDetail.ticket.location || "未填寫"}</dd></div><div><dt>設備編號</dt><dd>{ticketDetail.ticket.assetTag || "未填寫"}</dd></div></dl>
           <div className="ticket-description"><b>問題描述</b><p>{ticketDetail.ticket.description}</p></div>
-          <div className="ticket-update"><label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label><label>處理備註<textarea value={ticketNote} onChange={e=>setTicketNote(e.target.value)} placeholder="記錄處理進度、測試結果或解決方式"/></label></div>
+          {canUpdateTickets ? <div className="ticket-update"><label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label><label>處理備註<textarea value={ticketNote} onChange={e=>setTicketNote(e.target.value)} placeholder="記錄處理進度、測試結果或解決方式"/></label></div> : <div className="account-auth-note"><ShieldCheck size={18}/><span><b>此角色為工單唯讀權限</b><small>一般使用者可以查看自己的工單與處理歷程，但不可變更工單狀態。</small></span></div>}
           <div className="ticket-timeline"><h4>處理歷程</h4>{ticketDetail.events.map((event,index)=><article key={`${event.createdAt}-${index}`}><i/><div><b>{event.toStatus ? `${event.fromStatus} → ${event.toStatus}` : "工單已建立"}</b><p>{event.note}</p><small>{event.actorName}・{new Date(event.createdAt).toLocaleString("zh-TW")}</small></div></article>)}</div>
-          <div className="detail-actions"><button className="secondary" onClick={()=>setTicketDetail(null)}>關閉</button><button className="primary" disabled={updatingTicket} onClick={()=>void updateTicket()}>{updatingTicket ? "正在儲存…" : "更新工單與歷程"}</button></div>
+          <div className="detail-actions"><button className="secondary" onClick={()=>setTicketDetail(null)}>關閉</button>{canUpdateTickets && <button className="primary" disabled={updatingTicket} onClick={()=>void updateTicket()}>{updatingTicket ? "正在儲存…" : "更新工單與歷程"}</button>}</div>
         </div></div>}
         {toast && <div className="toast">✓ {toast}</div>}
       </section>

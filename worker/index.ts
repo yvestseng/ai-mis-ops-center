@@ -3,6 +3,9 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { handleSurveyRequest } from "./surveys";
 import { handleTicketRequest } from "./tickets";
+import { handleAdminRequest, handleSessionRequest } from "./admin";
+import { handleDashboardRequest } from "./dashboard";
+import { handleLoginRequest, handleLogoutRequest } from "./auth";
 
 interface Env {
   ASSETS: Fetcher;
@@ -42,6 +45,34 @@ const worker = {
     const ticketMatch = url.pathname.match(/^\/api\/tickets\/([^/]+)$/);
     if (ticketMatch) {
       return handleTicketRequest(request, env.DB, ticketMatch[1]);
+    }
+
+    if (url.pathname === "/api/session") {
+      return handleSessionRequest(request, env.DB);
+    }
+
+    if (url.pathname === "/api/auth/login") {
+      return handleLoginRequest(request, env.DB);
+    }
+
+    if (url.pathname === "/api/auth/logout") {
+      return handleLogoutRequest(request, env.DB);
+    }
+
+    if (url.pathname === "/api/dashboard") {
+      return handleDashboardRequest(request, env.DB);
+    }
+
+    const adminMatch = url.pathname.match(
+      /^\/api\/admin\/(users|roles|assets|services|audit)(?:\/([^/]+))?$/,
+    );
+    if (adminMatch) {
+      return handleAdminRequest(
+        request,
+        env.DB,
+        adminMatch[1] as "users" | "roles" | "assets" | "services" | "audit",
+        adminMatch[2],
+      );
     }
 
     if (url.pathname === "/_vinext/image") {

@@ -15,6 +15,20 @@
       "when": 1785036037893,
       "tag": "0001_material_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785114162368,
+      "tag": "0002_fantastic_the_anarchist",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785117883800,
+      "tag": "0003_rainy_komodo",
+      "breakpoints": true
     }
   ]
 }
