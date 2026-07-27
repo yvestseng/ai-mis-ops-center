@@ -81,3 +81,11 @@ wrangler.local.jsonc
 
 # D1 database backups
 remote-d1-backup-*/
+
+# Local recovered Drizzle files
+drizzle-recovered/
+
+# Local migration and Wrangler backups
+drizzle/*.sql.backup_*
+drizzle/*.sql.before-seed-fix_*
+wrangler.local.jsonc.backup_*

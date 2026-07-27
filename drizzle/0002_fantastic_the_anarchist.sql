@@ -1,4 +1,4 @@
-CREATE TABLE `app_users` (
+CREATE TABLE IF NOT EXISTS `app_users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`email` text NOT NULL,
 	`display_name` text NOT NULL,
@@ -11,9 +11,9 @@ CREATE TABLE `app_users` (
 	FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `app_users_email_uq` ON `app_users` (`email`);--> statement-breakpoint
-CREATE INDEX `app_users_role_status_idx` ON `app_users` (`role_id`,`status`);--> statement-breakpoint
-CREATE TABLE `assets` (
+CREATE UNIQUE INDEX IF NOT EXISTS `app_users_email_uq` ON `app_users` (`email`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `app_users_role_status_idx` ON `app_users` (`role_id`,`status`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `assets` (
 	`id` text PRIMARY KEY NOT NULL,
 	`asset_tag` text NOT NULL,
 	`name` text NOT NULL,
@@ -28,9 +28,9 @@ CREATE TABLE `assets` (
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `assets_asset_tag_uq` ON `assets` (`asset_tag`);--> statement-breakpoint
-CREATE INDEX `assets_type_status_idx` ON `assets` (`asset_type`,`status`);--> statement-breakpoint
-CREATE TABLE `audit_logs` (
+CREATE UNIQUE INDEX IF NOT EXISTS `assets_asset_tag_uq` ON `assets` (`asset_tag`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `assets_type_status_idx` ON `assets` (`asset_type`,`status`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `audit_logs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`actor_email` text NOT NULL,
 	`action` text NOT NULL,
@@ -40,9 +40,9 @@ CREATE TABLE `audit_logs` (
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `audit_logs_actor_created_idx` ON `audit_logs` (`actor_email`,`created_at`);--> statement-breakpoint
-CREATE INDEX `audit_logs_entity_created_idx` ON `audit_logs` (`entity_type`,`created_at`);--> statement-breakpoint
-CREATE TABLE `managed_services` (
+CREATE INDEX IF NOT EXISTS `audit_logs_actor_created_idx` ON `audit_logs` (`actor_email`,`created_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `audit_logs_entity_created_idx` ON `audit_logs` (`entity_type`,`created_at`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `managed_services` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`service_type` text NOT NULL,
@@ -56,9 +56,9 @@ CREATE TABLE `managed_services` (
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `managed_services_name_uq` ON `managed_services` (`name`);--> statement-breakpoint
-CREATE INDEX `managed_services_status_idx` ON `managed_services` (`status`);--> statement-breakpoint
-CREATE TABLE `roles` (
+CREATE UNIQUE INDEX IF NOT EXISTS `managed_services_name_uq` ON `managed_services` (`name`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `managed_services_status_idx` ON `managed_services` (`status`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `roles` (
 	`id` text PRIMARY KEY NOT NULL,
 	`code` text NOT NULL,
 	`name` text NOT NULL,
@@ -68,27 +68,27 @@ CREATE TABLE `roles` (
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `roles_code_uq` ON `roles` (`code`);
+CREATE UNIQUE INDEX IF NOT EXISTS `roles_code_uq` ON `roles` (`code`);
 --> statement-breakpoint
-INSERT INTO `roles` (`id`,`code`,`name`,`permissions`,`is_system`)
+INSERT OR IGNORE INTO `roles` (`id`,`code`,`name`,`permissions`,`is_system`)
 VALUES
 ('role-admin','admin','系統管理人員','["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read","rbac.manage","audit.read"]',1),
 ('role-operator','operator','MIS 維運人員','["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read"]',1),
 ('role-user','user','一般使用者','["dashboard.read","tickets.create","tickets.read.own","assets.read","services.read"]',1);
 --> statement-breakpoint
-INSERT INTO `app_users`
+INSERT OR IGNORE INTO `app_users`
 (`id`,`email`,`display_name`,`department`,`role_id`,`status`)
 VALUES
 ('user-owner','tsengs@twmns.com','TW_YVES','資訊部','role-admin','active'),
 ('user-helpdesk','mis-helpdesk@company.com','MIS Service Desk','資訊部','role-operator','active');
 --> statement-breakpoint
-INSERT INTO `assets`
+INSERT OR IGNORE INTO `assets`
 (`id`,`asset_tag`,`name`,`asset_type`,`owner_name`,`department`,`location`,`status`,`warranty_end`,`notes`)
 VALUES
 ('asset-demo-001','NB-0123','ZBook 行動工作站','筆記型電腦','TW_YVES','資訊部','台北辦公室','使用中','2027-06-30','管理系統示範設備'),
 ('asset-demo-002','NET-CORE-01','核心交換器','網路設備',NULL,'資訊部','台北機房','使用中','2028-03-31','核心網路設備');
 --> statement-breakpoint
-INSERT INTO `managed_services`
+INSERT OR IGNORE INTO `managed_services`
 (`id`,`name`,`service_type`,`owner_team`,`status`,`availability`,`description`,`last_checked_at`)
 VALUES
 ('service-m365','Microsoft 365','SaaS','系統維運組','正常',99.99,'Exchange Online、Teams 與 SharePoint Online',CURRENT_TIMESTAMP),
