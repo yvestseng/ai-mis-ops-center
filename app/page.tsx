@@ -60,7 +60,131 @@ const nav: { icon: LucideIcon; label: string }[] = [
   { icon: Settings, label: "系統設定" },
 ];
 
-const modules = ["營運總覽", "AI 資訊報修", "工單管理", "設備與服務", "資安監控", "服務治理", "權限管理", "系統設定"];
+const modules = [
+  "營運總覽",
+  "AI 資訊報修",
+  "工單管理",
+  "設備與服務",
+  "資安監控",
+  "服務治理",
+  "權限管理",
+  "系統設定",
+] as const;
+
+type ModuleName = (typeof modules)[number];
+type RoleName = "管理人員" | "維運人員" | "一般使用者";
+type UserRoleName = "系統管理人員" | "維運人員" | "一般使用者";
+
+type ManagedUser = {
+  name: string;
+  email: string;
+  role: UserRoleName;
+  enabled: boolean;
+};
+
+type RolePermissions = Record<RoleName, ModuleName[]>;
+
+const defaultManagedUsers: ManagedUser[] = [
+  {
+    name: "TW_YVES",
+    email: "tsengs@twmns.com",
+    role: "系統管理人員",
+    enabled: true,
+  },
+  {
+    name: "MIS Service Desk",
+    email: "mis-helpdesk@company.com",
+    role: "維運人員",
+    enabled: true,
+  },
+];
+
+const defaultRolePermissions: RolePermissions = {
+  管理人員: [...modules],
+  維運人員: modules.slice(0, 5),
+  一般使用者: modules.slice(0, 3),
+};
+
+function isManagedUser(value: unknown): value is ManagedUser {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<ManagedUser>;
+
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.email === "string" &&
+    typeof candidate.enabled === "boolean" &&
+    (candidate.role === "系統管理人員" ||
+      candidate.role === "維運人員" ||
+      candidate.role === "一般使用者")
+  );
+}
+
+function loadManagedUsers(): ManagedUser[] {
+  if (typeof window === "undefined") {
+    return defaultManagedUsers;
+  }
+
+  const saved = window.localStorage.getItem("mis-users");
+
+  if (!saved) {
+    return defaultManagedUsers;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(saved);
+
+    if (Array.isArray(parsed) && parsed.every(isManagedUser)) {
+      return parsed;
+    }
+  } catch {
+    // Ignore malformed legacy localStorage content.
+  }
+
+  return defaultManagedUsers;
+}
+
+function loadRolePermissions(): RolePermissions {
+  if (typeof window === "undefined") {
+    return defaultRolePermissions;
+  }
+
+  const saved = window.localStorage.getItem("mis-roles");
+
+  if (!saved) {
+    return defaultRolePermissions;
+  }
+
+  try {
+    const parsed = JSON.parse(saved) as Partial<
+      Record<RoleName, unknown>
+    >;
+
+    const normalized = {} as RolePermissions;
+
+    for (const roleName of [
+      "管理人員",
+      "維運人員",
+      "一般使用者",
+    ] satisfies RoleName[]) {
+      const permissions = parsed[roleName];
+
+      if (!Array.isArray(permissions)) {
+        return defaultRolePermissions;
+      }
+
+      normalized[roleName] = permissions.filter(
+        (permission): permission is ModuleName =>
+          typeof permission === "string" &&
+          modules.includes(permission as ModuleName),
+      );
+    }
+
+    return normalized;
+  } catch {
+    return defaultRolePermissions;
+  }
+}
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`toggle ${checked ? "on" : ""}`} onClick={onChange}><span /></button>;
@@ -74,47 +198,320 @@ function createClientId() {
 // Legacy local-only console retained for migration reference.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PermissionConsole() {
-  const [users, setUsers] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = window.localStorage.getItem("mis-users");
-      if (saved) try { return JSON.parse(saved); } catch {}
-    }
-    return [
-      { name: "TW_YVES", email: "tsengs@twmns.com", role: "系統管理人員", enabled: true },
-      { name: "MIS Service Desk", email: "mis-helpdesk@company.com", role: "維運人員", enabled: true },
-    ];
-  });
-  const [roles, setRoles] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = window.localStorage.getItem("mis-roles");
-      if (saved) try { return JSON.parse(saved); } catch {}
-    }
-    return { 管理人員: modules, 維運人員: modules.slice(0, 5), 一般使用者: modules.slice(0, 3) };
-  });
-  const [selectedRole, setSelectedRole] = useState<keyof typeof roles>("管理人員");
+  const [users, setUsers] = useState<ManagedUser[]>(loadManagedUsers);
+  const [roles, setRoles] =
+    useState<RolePermissions>(loadRolePermissions);
+  const [selectedRole, setSelectedRole] =
+    useState<RoleName>("管理人員");
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [newEmail, setNewEmail] = useState("");
-  const filtered = users.filter(u => `${u.name}${u.email}`.toLowerCase().includes(query.toLowerCase()));
-  useEffect(() => { window.localStorage.setItem("mis-users", JSON.stringify(users)); }, [users]);
-  useEffect(() => { window.localStorage.setItem("mis-roles", JSON.stringify(roles)); }, [roles]);
-  function flash(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2400); }
+
+  const filtered = users.filter((user) =>
+    `${user.name}${user.email}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem("mis-users", JSON.stringify(users));
+  }, [users]);
+
+  useEffect(() => {
+    window.localStorage.setItem("mis-roles", JSON.stringify(roles));
+  }, [roles]);
+
+  function flash(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2400);
+  }
+
   function addUser() {
-    if (!newEmail.includes("@") || users.some(u => u.email === newEmail)) return flash("請輸入有效且未重複的電子郵件");
-    setUsers([...users, { name: newEmail.split("@")[0], email: newEmail, role: "一般使用者", enabled: true }]); setNewEmail(""); setShowAdd(false); flash("使用者已加入授權清單");
+    const normalizedEmail = newEmail.trim().toLowerCase();
+
+    if (
+      !normalizedEmail.includes("@") ||
+      users.some((user) => user.email === normalizedEmail)
+    ) {
+      flash("請輸入有效且未重複的電子郵件");
+      return;
+    }
+
+    const newUser: ManagedUser = {
+      name: normalizedEmail.split("@")[0],
+      email: normalizedEmail,
+      role: "一般使用者",
+      enabled: true,
+    };
+
+    setUsers((current) => [...current, newUser]);
+    setNewEmail("");
+    setShowAdd(false);
+    flash("使用者已加入授權清單");
   }
-  function togglePermission(module: string) {
-    const current = roles[selectedRole];
-    setRoles({ ...roles, [selectedRole]: current.includes(module) ? current.filter(x => x !== module) : [...current, module] });
+
+  function updateUserRole(
+    email: string,
+    role: UserRoleName,
+  ) {
+    setUsers((current) =>
+      current.map((user) =>
+        user.email === email ? { ...user, role } : user,
+      ),
+    );
   }
-  return <section className="management-console">
-    <div className="page-heading"><div><span className="eyebrow">ACCESS CONTROL</span><h2>權限管理</h2><p>集中管理授權人員、角色與各模組存取權限。</p></div><div className="toolbar"><button className="secondary" onClick={() => flash("LDAP 同步完成，沒有異動")}>↻ 同步 LDAP</button><button className="primary" onClick={() => setShowAdd(true)}>＋ 新增使用者</button></div></div>
-    <div className="admin-stats"><article><b>{users.length}</b><span>授權帳號</span></article><article><b>3</b><span>權限角色</span></article><article><b>{users.filter(u => u.enabled).length}</b><span>啟用中</span></article><article><b>0</b><span>登入異常</span></article></div>
-    <div className="manage-grid"><div className="card manage-card"><div className="card-head"><div><h3>使用者帳號</h3><p>只有清單內帳號可以進入系統</p></div><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜尋姓名或信箱" aria-label="搜尋使用者" /></div><div className="user-list">{filtered.map(u => <div className="user-row" key={u.email}><span className="mini-avatar">{u.name.slice(0,2).toUpperCase()}</span><div><b>{u.name}</b><small>{u.email}</small></div><select value={u.role} onChange={e => setUsers(users.map(x => x.email === u.email ? {...x, role:e.target.value}:x))}><option>系統管理人員</option><option>維運人員</option><option>一般使用者</option></select><Toggle label={`${u.name} 帳號狀態`} checked={u.enabled} onChange={() => setUsers(users.map(x => x.email === u.email ? {...x, enabled:!x.enabled}:x))}/><button className="icon-action" onClick={() => u.email === "tsengs@twmns.com" ? flash("主要管理人員不可刪除") : setUsers(users.filter(x => x.email !== u.email))} aria-label={`刪除 ${u.name}`}>刪除</button></div>)}</div></div>
-      <div className="card manage-card"><div className="card-head"><div><h3>角色功能權限</h3><p>選擇角色後設定可使用的模組</p></div><select value={selectedRole} onChange={e => setSelectedRole(e.target.value as keyof typeof roles)}><option>管理人員</option><option>維運人員</option><option>一般使用者</option></select></div><div className="permission-list">{modules.map(m => <label key={m}><span><b>{m}</b><small>{m === "權限管理" || m === "系統設定" ? "管理功能" : "業務功能"}</small></span><Toggle label={`${selectedRole} ${m}`} checked={roles[selectedRole].includes(m)} onChange={() => togglePermission(m)}/></label>)}</div><div className="card-actions"><button className="secondary" onClick={() => setRoles({...roles, [selectedRole]: []})}>清除</button><button className="primary" onClick={() => flash(`${selectedRole}權限已儲存`)}>儲存權限</button></div></div></div>
-    {showAdd && <div className="modal-backdrop"><div className="modal card"><h3>新增授權使用者</h3><p>新增後可指定角色與功能權限。</p><label>公司電子郵件<input autoFocus value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="name@company.com" /></label><div><button className="secondary" onClick={() => setShowAdd(false)}>取消</button><button className="primary" onClick={addUser}>確認新增</button></div></div></div>}{toast && <div className="toast">✓ {toast}</div>}
-  </section>;
+
+  function toggleUserStatus(email: string) {
+    setUsers((current) =>
+      current.map((user) =>
+        user.email === email
+          ? { ...user, enabled: !user.enabled }
+          : user,
+      ),
+    );
+  }
+
+  function removeUser(email: string) {
+    if (email === "tsengs@twmns.com") {
+      flash("主要管理人員不可刪除");
+      return;
+    }
+
+    setUsers((current) =>
+      current.filter((user) => user.email !== email),
+    );
+  }
+
+  function togglePermission(moduleName: ModuleName) {
+    setRoles((currentRoles) => {
+      const currentPermissions =
+        currentRoles[selectedRole];
+
+      return {
+        ...currentRoles,
+        [selectedRole]: currentPermissions.includes(moduleName)
+          ? currentPermissions.filter(
+              (permission) => permission !== moduleName,
+            )
+          : [...currentPermissions, moduleName],
+      };
+    });
+  }
+
+  return (
+    <section className="management-console">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">ACCESS CONTROL</span>
+          <h2>權限管理</h2>
+          <p>集中管理授權人員、角色與各模組存取權限。</p>
+        </div>
+        <div className="toolbar">
+          <button
+            className="secondary"
+            onClick={() => flash("LDAP 同步完成，沒有異動")}
+          >
+            ↻ 同步 LDAP
+          </button>
+          <button
+            className="primary"
+            onClick={() => setShowAdd(true)}
+          >
+            ＋ 新增使用者
+          </button>
+        </div>
+      </div>
+
+      <div className="admin-stats">
+        <article>
+          <b>{users.length}</b>
+          <span>授權帳號</span>
+        </article>
+        <article>
+          <b>3</b>
+          <span>權限角色</span>
+        </article>
+        <article>
+          <b>{users.filter((user) => user.enabled).length}</b>
+          <span>啟用中</span>
+        </article>
+        <article>
+          <b>0</b>
+          <span>登入異常</span>
+        </article>
+      </div>
+
+      <div className="manage-grid">
+        <div className="card manage-card">
+          <div className="card-head">
+            <div>
+              <h3>使用者帳號</h3>
+              <p>只有清單內帳號可以進入系統</p>
+            </div>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜尋姓名或信箱"
+              aria-label="搜尋使用者"
+            />
+          </div>
+
+          <div className="user-list">
+            {filtered.map((user) => (
+              <div className="user-row" key={user.email}>
+                <span className="mini-avatar">
+                  {user.name.slice(0, 2).toUpperCase()}
+                </span>
+
+                <div>
+                  <b>{user.name}</b>
+                  <small>{user.email}</small>
+                </div>
+
+                <select
+                  value={user.role}
+                  onChange={(event) =>
+                    updateUserRole(
+                      user.email,
+                      event.target.value as UserRoleName,
+                    )
+                  }
+                >
+                  <option value="系統管理人員">
+                    系統管理人員
+                  </option>
+                  <option value="維運人員">維運人員</option>
+                  <option value="一般使用者">一般使用者</option>
+                </select>
+
+                <Toggle
+                  label={`${user.name} 帳號狀態`}
+                  checked={user.enabled}
+                  onChange={() =>
+                    toggleUserStatus(user.email)
+                  }
+                />
+
+                <button
+                  className="icon-action"
+                  onClick={() => removeUser(user.email)}
+                  aria-label={`刪除 ${user.name}`}
+                >
+                  刪除
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card manage-card">
+          <div className="card-head">
+            <div>
+              <h3>角色功能權限</h3>
+              <p>選擇角色後設定可使用的模組</p>
+            </div>
+
+            <select
+              value={selectedRole}
+              onChange={(event) =>
+                setSelectedRole(
+                  event.target.value as RoleName,
+                )
+              }
+            >
+              <option value="管理人員">管理人員</option>
+              <option value="維運人員">維運人員</option>
+              <option value="一般使用者">一般使用者</option>
+            </select>
+          </div>
+
+          <div className="permission-list">
+            {modules.map((moduleName) => (
+              <label key={moduleName}>
+                <span>
+                  <b>{moduleName}</b>
+                  <small>
+                    {moduleName === "權限管理" ||
+                    moduleName === "系統設定"
+                      ? "管理功能"
+                      : "業務功能"}
+                  </small>
+                </span>
+
+                <Toggle
+                  label={`${selectedRole} ${moduleName}`}
+                  checked={roles[selectedRole].includes(
+                    moduleName,
+                  )}
+                  onChange={() =>
+                    togglePermission(moduleName)
+                  }
+                />
+              </label>
+            ))}
+          </div>
+
+          <div className="card-actions">
+            <button
+              className="secondary"
+              onClick={() =>
+                setRoles((current) => ({
+                  ...current,
+                  [selectedRole]: [],
+                }))
+              }
+            >
+              清除
+            </button>
+            <button
+              className="primary"
+              onClick={() =>
+                flash(`${selectedRole}權限已儲存`)
+              }
+            >
+              儲存權限
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {showAdd && (
+        <div className="modal-backdrop">
+          <div className="modal card">
+            <h3>新增授權使用者</h3>
+            <p>新增後可指定角色與功能權限。</p>
+
+            <label>
+              公司電子郵件
+              <input
+                autoFocus
+                value={newEmail}
+                onChange={(event) =>
+                  setNewEmail(event.target.value)
+                }
+                placeholder="name@company.com"
+              />
+            </label>
+
+            <div>
+              <button
+                className="secondary"
+                onClick={() => setShowAdd(false)}
+              >
+                取消
+              </button>
+              <button className="primary" onClick={addUser}>
+                確認新增
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <div className="toast">✓ {toast}</div>}
+    </section>
+  );
 }
 
 function SettingsConsole() {
@@ -142,17 +539,50 @@ function SettingRow({title,note,value,onChange}:{title:string;note:string;value:
 
 type TestState = "待測試" | "測試中" | "通過";
 
+type SurveyType = "system_usage" | "it_service";
+
+type SurveySummaryRow = {
+  survey_type: SurveyType;
+  response_count: number | string | null;
+  average_score: number | string | null;
+  average_nps: number | string | null;
+};
+
+type SurveyStatsResponse = {
+  summaries?: SurveySummaryRow[];
+  pendingFollowups?: number | string | null;
+};
+
+type SurveyMetric = {
+  responseCount: number;
+  averageScore: number;
+  averageNps: number;
+};
+
+type SurveyStatsState = Record<SurveyType, SurveyMetric> & {
+  pendingFollowups: number;
+};
+
 function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, body:string) => void; onEmailTicket: () => void }) {
   const [tab, setTab] = useState("SLA 與派工");
   const [toast, setToast] = useState("");
   const [systemSurvey, setSystemSurvey] = useState({ ease:"4", speed:"4", usefulness:"5", recommend:"9", comment:"整體操作清楚，希望持續增加自助排除功能。" });
   const [itSurvey, setItSurvey] = useState({ ticketReference:"", response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"張志豪", comment:"說明清楚，問題已完整排除。" });
   const [submittingSurvey, setSubmittingSurvey] = useState<"system_usage" | "it_service" | null>(null);
-  const [surveyStats, setSurveyStats] = useState({
-    system_usage: { responseCount: 0, averageScore: 0, averageNps: 0 },
-    it_service: { responseCount: 0, averageScore: 0, averageNps: 0 },
-    pendingFollowups: 0,
-  });
+  const [surveyStats, setSurveyStats] =
+    useState<SurveyStatsState>({
+      system_usage: {
+        responseCount: 0,
+        averageScore: 0,
+        averageNps: 0,
+      },
+      it_service: {
+        responseCount: 0,
+        averageScore: 0,
+        averageNps: 0,
+      },
+      pendingFollowups: 0,
+    });
   const flash = (message:string) => { setToast(message); window.setTimeout(() => setToast(""), 2300); };
   const respondentToken = () => {
     const key = "mis-survey-device-id";
@@ -165,25 +595,45 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
   };
   const loadSurveyStats = async () => {
     try {
-      const response = await fetch("/api/surveys", { cache: "no-store" });
+      const response = await fetch("/api/surveys", {
+        cache: "no-store",
+      });
+
       if (!response.ok) return;
-      const data = await response.json();
-      const next = {
-        system_usage: { responseCount: 0, averageScore: 0, averageNps: 0 },
-        it_service: { responseCount: 0, averageScore: 0, averageNps: 0 },
-        pendingFollowups: Number(data.pendingFollowups || 0),
+
+      const data =
+        (await response.json()) as SurveyStatsResponse;
+
+      const next: SurveyStatsState = {
+        system_usage: {
+          responseCount: 0,
+          averageScore: 0,
+          averageNps: 0,
+        },
+        it_service: {
+          responseCount: 0,
+          averageScore: 0,
+          averageNps: 0,
+        },
+        pendingFollowups: Number(
+          data.pendingFollowups ?? 0,
+        ),
       };
-      for (const row of data.summaries || []) {
-        if (row.survey_type === "system_usage" || row.survey_type === "it_service") {
-          next[row.survey_type] = {
-            responseCount: Number(row.response_count || 0),
-            averageScore: Number(row.average_score || 0),
-            averageNps: Number(row.average_nps || 0),
-          };
-        }
+
+      for (const row of data.summaries ?? []) {
+        const surveyType = row.survey_type;
+
+        next[surveyType] = {
+          responseCount: Number(row.response_count ?? 0),
+          averageScore: Number(row.average_score ?? 0),
+          averageNps: Number(row.average_nps ?? 0),
+        };
       }
+
       setSurveyStats(next);
-    } catch {}
+    } catch {
+      // 保留目前統計資料，避免暫時性 API 錯誤中斷頁面。
+    }
   };
   const submitSurvey = async (surveyType: "system_usage" | "it_service") => {
     if (submittingSurvey) return;

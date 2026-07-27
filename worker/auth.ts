@@ -191,6 +191,54 @@ function clean(value: unknown, maxLength: number) {
 }
 
 async function ensureAuthSchema(db: D1Database) {
+  // A fresh local D1 database does not contain the application tables yet.
+  // Create authentication dependencies first. Each statement is idempotent,
+  // making this safe for both local and existing hosted databases.
+  await db.batch([
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS roles (
+        id text PRIMARY KEY NOT NULL,
+        code text NOT NULL,
+        name text NOT NULL,
+        permissions text DEFAULT '[]' NOT NULL,
+        is_system integer DEFAULT 0 NOT NULL,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`,
+    ),
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS app_users (
+        id text PRIMARY KEY NOT NULL,
+        username text,
+        email text NOT NULL,
+        display_name text NOT NULL,
+        department text,
+        role_id text NOT NULL,
+        password_hash text,
+        password_salt text,
+        password_changed_at text,
+        status text DEFAULT 'active' NOT NULL,
+        last_login_at text,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        FOREIGN KEY (role_id) REFERENCES roles(id)
+      )`,
+    ),
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS audit_logs (
+        id text PRIMARY KEY NOT NULL,
+        actor_email text NOT NULL,
+        action text NOT NULL,
+        entity_type text NOT NULL,
+        entity_id text,
+        details text,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`,
+    ),
+  ]);
+
+  // Older deployments may already have app_users without local-login fields.
+  // Add only columns that are missing so existing data is preserved.
   const tableInfo = await db
     .prepare("PRAGMA table_info('app_users')")
     .all<{ name: string }>();
@@ -198,7 +246,7 @@ async function ensureAuthSchema(db: D1Database) {
     (tableInfo.results || []).map((column) => String(column.name)),
   );
   if (!columns.size) {
-    throw new Error("app_users table is unavailable");
+    throw new Error("app_users table could not be created");
   }
 
   const missingColumns = [
@@ -411,13 +459,15 @@ async function handleLoginCore(request: Request, db: D1Database) {
   }
   try {
     await ensureAuthSchema(db);
-  } catch {
-    throw new Error("AUTH_SCHEMA");
+  } catch (error) {
+    console.error("Auth schema initialization failed", error);
+    throw new Error("AUTH_SCHEMA", { cause: error });
   }
   try {
     await ensureDemoAccounts(db);
-  } catch {
-    throw new Error("AUTH_SEED");
+  } catch (error) {
+    console.error("Demo account initialization failed", error);
+    throw new Error("AUTH_SEED", { cause: error });
   }
   let payload: Record<string, unknown>;
   try {
@@ -444,8 +494,9 @@ async function handleLoginCore(request: Request, db: D1Database) {
       )
       .bind(username, username)
       .first<Record<string, string | null>>();
-  } catch {
-    throw new Error("AUTH_USER_QUERY");
+  } catch (error) {
+    console.error("Authentication user query failed", error);
+    throw new Error("AUTH_USER_QUERY", { cause: error });
   }
   let passwordMatches = false;
   if (row?.passwordHash && row.passwordSalt) {
@@ -455,8 +506,9 @@ async function handleLoginCore(request: Request, db: D1Database) {
         row.passwordHash,
         row.passwordSalt,
       );
-    } catch {
-      throw new Error("AUTH_PASSWORD_VERIFY");
+    } catch (error) {
+      console.error("Password verification failed", error);
+      throw new Error("AUTH_PASSWORD_VERIFY", { cause: error });
     }
   }
   if (
@@ -492,8 +544,9 @@ async function handleLoginCore(request: Request, db: D1Database) {
         .prepare("UPDATE app_users SET last_login_at = ? WHERE id = ?")
         .bind(now.toISOString(), row.id),
     ]);
-  } catch {
-    throw new Error("AUTH_SESSION_WRITE");
+  } catch (error) {
+    console.error("Authentication session write failed", error);
+    throw new Error("AUTH_SESSION_WRITE", { cause: error });
   }
   const identity = toIdentity(row);
   try {

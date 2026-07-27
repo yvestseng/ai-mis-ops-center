@@ -196,10 +196,31 @@ export function ResourceConsole({
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<ApiItem | "new" | null>(null);
   const [message, setMessage] = useState("");
-  const empty = isAsset
-    ? { assetTag: "", name: "", assetType: "筆記型電腦", ownerName: "", department: "", location: "", status: "使用中", warrantyEnd: "", notes: "" }
-    : { name: "", serviceType: "SaaS", ownerTeam: "MIS 服務台", status: "正常", availability: 99.9, endpoint: "", description: "" };
-  const [form, setForm] = useState<Record<string, string | number>>(empty);
+  const empty: Record<string, string | number> = isAsset
+    ? {
+        assetTag: "",
+        name: "",
+        assetType: "筆記型電腦",
+        ownerName: "",
+        department: "",
+        location: "",
+        status: "使用中",
+        warrantyEnd: "",
+        notes: "",
+      }
+    : {
+        name: "",
+        serviceType: "SaaS",
+        ownerTeam: "MIS 服務台",
+        status: "正常",
+        availability: 99.9,
+        endpoint: "",
+        description: "",
+      };
+
+  const [form, setForm] = useState<Record<string, string | number>>(
+    () => ({ ...empty }),
+  );
 
   const load = useCallback(async () => {
     const result = await api(`/api/admin/${entity}`);
@@ -218,8 +239,21 @@ export function ResourceConsole({
   const flash = (value: string) => { setMessage(value); window.setTimeout(() => setMessage(""), 2400); };
 
   function open(item?: ApiItem) {
-    setEditing(item || "new");
-    setForm(item ? Object.fromEntries(Object.entries(item).map(([key, value]) => [key, value ?? ""])) as Record<string, string | number> : empty);
+    setEditing(item ?? "new");
+
+    if (!item) {
+      setForm({ ...empty });
+      return;
+    }
+
+    const normalizedForm = Object.fromEntries(
+      Object.entries(item).map(([key, value]) => [
+        key,
+        typeof value === "boolean" ? Number(value) : (value ?? ""),
+      ]),
+    ) as Record<string, string | number>;
+
+    setForm(normalizedForm);
   }
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -259,7 +293,39 @@ export function DashboardReport() {
     recentActivity?: ApiItem[];
   };
   const [data, setData] = useState<DashboardData | null>(null);
-  useEffect(() => { fetch("/api/dashboard", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then(setData).catch(() => {}); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadDashboard() {
+      try {
+        const response = await fetch("/api/dashboard", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          setData(null);
+          return;
+        }
+
+        const result = (await response.json()) as DashboardData;
+        setData(result);
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        setData(null);
+      }
+    }
+
+    void loadDashboard();
+
+    return () => controller.abort();
+  }, []);
   if (!data) return null;
   const max = Math.max(...(data.ticketTrend || []).map((x: ApiItem) => Number(x.count)), 1);
   return <section className="management-report card"><div className="section-title"><div><span className="eyebrow">LIVE MANAGEMENT REPORT</span><h2>即時管理報表</h2></div><span className="healthy"><i/>D1 即時彙總</span></div><div className="report-kpis"><article><b>{Number(data.tickets?.total || 0)}</b><span>累計工單</span><small>{Number(data.tickets?.resolved || 0)} 件已解決</small></article><article><b>{Number(data.assets?.total || 0)}</b><span>設備資產</span><small>{Number(data.assets?.warranty_due || 0)} 件保固即將到期</small></article><article><b>{Number(data.services?.availability || 0)}%</b><span>服務可用率</span><small>{Number(data.services?.healthy || 0)} 項運作正常</small></article><article><b>{Number(data.surveys?.average_score || 0)}</b><span>平均滿意度</span><small>{Number(data.surveys?.total || 0)} 份有效問卷</small></article></div><div className="report-body"><div><h3>近 7 日工單趨勢</h3><div className="bar-chart">{(data.ticketTrend || []).map((row: ApiItem) => <div key={String(row.date)}><span style={{height:`${Math.max(8, Number(row.count) / max * 100)}%`}}/><b>{Number(row.count)}</b><small>{String(row.date).slice(5)}</small></div>)}</div></div><div><h3>最近管理活動</h3><div className="activity-list">{(data.recentActivity || []).map((row: ApiItem, index: number) => <article key={`${row.createdAt}-${index}`}><i/><div><b>{String(row.action)} · {String(row.entityType)}</b><span>{String(row.actorEmail)}</span><small>{new Date(String(row.createdAt)).toLocaleString("zh-TW")}</small></div></article>)}</div></div></div></section>;

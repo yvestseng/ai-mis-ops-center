@@ -11,6 +11,17 @@ type SurveyPayload = {
   answers?: unknown;
 };
 
+type SurveySummaryRow = {
+  survey_type: SurveyType;
+  response_count: number;
+  average_score: number | null;
+  average_nps: number | null;
+};
+
+type PendingFollowupRow = {
+  pending_count: number;
+};
+
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store",
@@ -50,14 +61,27 @@ function sqliteConflict(error: unknown) {
 
 async function createSurvey(request: Request, db: D1Database) {
   let payload: SurveyPayload;
+
   try {
     payload = (await request.json()) as SurveyPayload;
   } catch {
-    return json({ error: "INVALID_JSON", message: "問卷資料格式不正確。" }, 400);
+    return json(
+      {
+        error: "INVALID_JSON",
+        message: "問卷資料格式不正確。",
+      },
+      400,
+    );
   }
 
   if (!isSurveyType(payload.surveyType)) {
-    return json({ error: "INVALID_SURVEY", message: "不支援的問卷類型。" }, 400);
+    return json(
+      {
+        error: "INVALID_SURVEY",
+        message: "不支援的問卷類型。",
+      },
+      400,
+    );
   }
 
   const submissionKey = textValue(payload.submissionKey, 80);
@@ -69,7 +93,13 @@ async function createSurvey(request: Request, db: D1Database) {
       : {};
 
   if (!submissionKey || !respondentToken) {
-    return json({ error: "MISSING_IDENTITY", message: "缺少問卷識別資料，請重新整理後再試。" }, 400);
+    return json(
+      {
+        error: "MISSING_IDENTITY",
+        message: "缺少問卷識別資料，請重新整理後再試。",
+      },
+      400,
+    );
   }
 
   const answerRows: Array<[string, string, number | null]> = [];
@@ -86,12 +116,28 @@ async function createSurvey(request: Request, db: D1Database) {
     const speed = score(answers.speed, 1, 5);
     const usefulness = score(answers.usefulness, 1, 5);
     npsScore = score(answers.recommend, 0, 10);
-    if (ease === null || speed === null || usefulness === null || npsScore === null) {
-      return json({ error: "INVALID_ANSWER", message: "請完成所有系統使用評分。" }, 400);
+
+    if (
+      ease === null ||
+      speed === null ||
+      usefulness === null ||
+      npsScore === null
+    ) {
+      return json(
+        {
+          error: "INVALID_ANSWER",
+          message: "請完成所有系統使用評分。",
+        },
+        400,
+      );
     }
-    overallScore = Number(((ease + speed + usefulness) / 3).toFixed(2));
+
+    overallScore = Number(
+      ((ease + speed + usefulness) / 3).toFixed(2),
+    );
     needsFollowup = overallScore < 3;
     followupReason = `系統使用整體評分 ${overallScore} 分`;
+
     answerRows.push(
       ["ease", String(ease), ease],
       ["speed", String(speed), speed],
@@ -102,9 +148,14 @@ async function createSurvey(request: Request, db: D1Database) {
     const response = score(answers.response, 1, 5);
     const expertise = score(answers.expertise, 1, 5);
     const communication = score(answers.communication, 1, 5);
-    ticketReference = textValue(payload.ticketReference, 40).toUpperCase();
+
+    ticketReference = textValue(
+      payload.ticketReference,
+      40,
+    ).toUpperCase();
     engineerName = textValue(payload.engineer, 80);
     resolvedStatus = textValue(payload.resolved, 20);
+
     if (
       response === null ||
       expertise === null ||
@@ -113,15 +164,32 @@ async function createSurvey(request: Request, db: D1Database) {
       !engineerName ||
       !["是", "部分解決", "否"].includes(resolvedStatus)
     ) {
-      return json({ error: "INVALID_ANSWER", message: "請填寫工單編號並完成所有服務評分。" }, 400);
+      return json(
+        {
+          error: "INVALID_ANSWER",
+          message: "請填寫工單編號並完成所有服務評分。",
+        },
+        400,
+      );
     }
-    overallScore = Number(((response + expertise + communication) / 3).toFixed(2));
+
+    overallScore = Number(
+      ((response + expertise + communication) / 3).toFixed(2),
+    );
+
     needsFollowup =
-      Math.min(response, expertise, communication) < 3 || resolvedStatus !== "是";
+      Math.min(response, expertise, communication) < 3 ||
+      resolvedStatus !== "是";
+
     followupReason =
       resolvedStatus !== "是"
         ? `問題狀態：${resolvedStatus}`
-        : `IT 服務最低評分 ${Math.min(response, expertise, communication)} 分`;
+        : `IT 服務最低評分 ${Math.min(
+            response,
+            expertise,
+            communication,
+          )} 分`;
+
     answerRows.push(
       ["response", String(response), response],
       ["expertise", String(expertise), expertise],
@@ -134,6 +202,7 @@ async function createSurvey(request: Request, db: D1Database) {
   const responseId = crypto.randomUUID();
   const submittedAt = new Date().toISOString();
   const submissionDate = submittedAt.slice(0, 10);
+
   const respondentHash = await sha256(
     payload.surveyType === "it_service" && ticketReference
       ? `${respondentToken}:${ticketReference}`
@@ -164,20 +233,21 @@ async function createSurvey(request: Request, db: D1Database) {
         needsFollowup ? 1 : 0,
         submittedAt,
       ),
-    ...answerRows.map(([questionCode, answerValue, numericScore]) =>
-      db
-        .prepare(
-          `INSERT INTO survey_answers
-            (id, response_id, question_code, answer_value, numeric_score)
-           VALUES (?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          crypto.randomUUID(),
-          responseId,
-          questionCode,
-          answerValue,
-          numericScore,
-        ),
+    ...answerRows.map(
+      ([questionCode, answerValue, numericScore]) =>
+        db
+          .prepare(
+            `INSERT INTO survey_answers
+              (id, response_id, question_code, answer_value, numeric_score)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            responseId,
+            questionCode,
+            answerValue,
+            numericScore,
+          ),
     ),
   ];
 
@@ -214,8 +284,16 @@ async function createSurvey(request: Request, db: D1Database) {
         409,
       );
     }
+
     console.error("survey insert failed", error);
-    return json({ error: "DATABASE_ERROR", message: "問卷暫時無法儲存，請稍後再試。" }, 500);
+
+    return json(
+      {
+        error: "DATABASE_ERROR",
+        message: "問卷暫時無法儲存，請稍後再試。",
+      },
+      500,
+    );
   }
 
   return json(
@@ -232,46 +310,93 @@ async function createSurvey(request: Request, db: D1Database) {
 }
 
 async function getSurveyStats(db: D1Database) {
-  const [summaries, followups] = await db.batch([
-    db.prepare(
-      `SELECT survey_type,
-              COUNT(*) AS response_count,
-              ROUND(AVG(overall_score), 1) AS average_score,
-              ROUND(AVG(CASE WHEN nps_score IS NOT NULL THEN nps_score END), 1) AS average_nps
-       FROM survey_responses
-       GROUP BY survey_type`,
-    ),
-    db.prepare(
-      `SELECT COUNT(*) AS pending_count
-       FROM survey_followups
-       WHERE status = 'pending'`,
-    ),
+  const [summaryResult, followupResult] = await Promise.all([
+    db
+      .prepare(
+        `SELECT survey_type,
+                COUNT(*) AS response_count,
+                ROUND(AVG(overall_score), 1) AS average_score,
+                ROUND(
+                  AVG(
+                    CASE
+                      WHEN nps_score IS NOT NULL
+                      THEN nps_score
+                    END
+                  ),
+                  1
+                ) AS average_nps
+         FROM survey_responses
+         GROUP BY survey_type`,
+      )
+      .all<SurveySummaryRow>(),
+
+    db
+      .prepare(
+        `SELECT COUNT(*) AS pending_count
+         FROM survey_followups
+         WHERE status = 'pending'`,
+      )
+      .first<PendingFollowupRow>(),
   ]);
 
+  const summaries = summaryResult.results.map((row) => ({
+    survey_type: row.survey_type,
+    response_count: Number(row.response_count ?? 0),
+    average_score:
+      row.average_score === null
+        ? 0
+        : Number(row.average_score),
+    average_nps:
+      row.average_nps === null
+        ? 0
+        : Number(row.average_nps),
+  }));
+
   return json({
-    summaries: summaries.results,
-    pendingFollowups: Number(followups.results[0]?.pending_count ?? 0),
+    summaries,
+    pendingFollowups: Number(
+      followupResult?.pending_count ?? 0,
+    ),
   });
 }
 
-export function handleSurveyRequest(request: Request, db: D1Database) {
+export function handleSurveyRequest(
+  request: Request,
+  db: D1Database,
+) {
   if (request.method === "POST") {
     return createSurvey(request, db).catch((error) => {
       console.error("survey request failed", error);
+
       return json(
-        { error: "SURVEY_REQUEST_FAILED", message: "問卷暫時無法儲存，請稍後再試。" },
+        {
+          error: "SURVEY_REQUEST_FAILED",
+          message: "問卷暫時無法儲存，請稍後再試。",
+        },
         500,
       );
     });
   }
+
   if (request.method === "GET") {
     return getSurveyStats(db).catch((error) => {
       console.error("survey stats failed", error);
+
       return json(
-        { error: "SURVEY_STATS_FAILED", message: "問卷統計暫時無法讀取。" },
+        {
+          error: "SURVEY_STATS_FAILED",
+          message: "問卷統計暫時無法讀取。",
+        },
         500,
       );
     });
   }
-  return json({ error: "METHOD_NOT_ALLOWED", message: "不支援此操作。" }, 405);
+
+  return json(
+    {
+      error: "METHOD_NOT_ALLOWED",
+      message: "不支援此操作。",
+    },
+    405,
+  );
 }
