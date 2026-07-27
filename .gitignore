@@ -75,3 +75,9 @@ check_tickets.py
 *.before-binding-cast-fix
 
 # Local maintenance scripts
+
+# Local Cloudflare configuration
+wrangler.local.jsonc
+
+# D1 database backups
+remote-d1-backup-*/
