@@ -35,6 +35,7 @@ type Ticket = {
   assetTag?: string | null;
   assignedTeam: string;
   status: string;
+  surveySubmitted?: boolean | number;
   createdAt: string;
   updatedAt: string;
 };
@@ -865,7 +866,7 @@ function LoginScreen({
 
   return <main className="login-page">
     <section className="login-intro">
-      <div className="login-brand"><span className="brandmark">A</span><span><strong>AI 資訊報修</strong><small>MIS 維運／資安監控中心</small></span></div>
+      <div className="login-brand"><span className="brandmark">A</span><span><strong>文化大學學分班 AI 資訊報修</strong><small>MIS 維運／資安監控中心</small></span></div>
       <div className="login-message"><span className="login-kicker">ENTERPRISE IT OPERATIONS</span><h1>讓資訊服務更快速，<br/>讓資安風險更透明。</h1><p>整合 AI 報修、工單治理、設備服務與資安監控，協助 MIS 團隊集中掌握企業資訊營運狀態。</p>
         <div className="login-features"><span>✦ AI 智慧分類與派工</span><span>▣ ITSM 與 SLA 管理</span><span>♢ 資安事件即時監控</span></div>
       </div>
@@ -919,6 +920,15 @@ export default function Home() {
   const [ticketNote, setTicketNote] = useState("");
   const [ticketStatus, setTicketStatus] = useState("待處理");
   const [updatingTicket, setUpdatingTicket] = useState(false);
+  const [surveyOpen, setSurveyOpen] = useState(false);
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [ticketRating, setTicketRating] = useState({
+    response: "5",
+    expertise: "5",
+    communication: "5",
+    resolved: "是",
+    comment: "",
+  });
   const count = issue.length;
   const aiResult = useMemo(() => ({ category: "網路連線", priority: issue.includes("斷線") ? "高" : "中", team: "網路維運組" }), [issue]);
   function requesterToken() {
@@ -1115,6 +1125,62 @@ export default function Home() {
       setUpdatingTicket(false);
     }
   }
+  async function submitTicketRating() {
+    if (!ticketDetail || submittingRating) return;
+    if (session?.roleCode !== "user") {
+      setSurveyOpen(false);
+      flash("只有一般使用者可以評價資訊服務");
+      return;
+    }
+    setSubmittingRating(true);
+    try {
+      const response = await fetch("/api/surveys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          submissionKey: createClientId(),
+          respondentToken: requesterToken(),
+          surveyType: "it_service",
+          ticketReference: ticketDetail.ticket.ticketNumber,
+          resolved: ticketRating.resolved,
+          comment: ticketRating.comment,
+          answers: {
+            response: ticketRating.response,
+            expertise: ticketRating.expertise,
+            communication: ticketRating.communication,
+          },
+        }),
+      });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message || "服務評分送出失敗");
+
+      setSurveyOpen(false);
+      setTicketRating({
+        response: "5",
+        expertise: "5",
+        communication: "5",
+        resolved: "是",
+        comment: "",
+      });
+      setTicketDetail({
+        ...ticketDetail,
+        ticket: { ...ticketDetail.ticket, surveySubmitted: true },
+      });
+      setTickets((current) =>
+        current.map((ticket) =>
+          ticket.id === ticketDetail.ticket.id
+            ? { ...ticket, surveySubmitted: true }
+            : ticket,
+        ),
+      );
+      flash(result.message || "感謝您的服務評分");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "服務評分送出失敗");
+    } finally {
+      setSubmittingRating(false);
+    }
+  }
+
   const searchResults = search.trim() ? tickets.filter(x => Object.values(x).join(" ").toLowerCase().includes(search.toLowerCase())).slice(0,5) : [];
   const permissionForNav: Record<string, string> = {
     "營運總覽": "dashboard.read",
@@ -1140,6 +1206,15 @@ export default function Home() {
   const canWriteServices =
     session?.roleCode === "admin" ||
     session?.permissions.includes("services.write");
+  // 服務評分只依角色顯示：一般使用者可評分，
+  // 避免舊 Session 或 D1 權限尚未同步時誤把入口隱藏。
+  // 真正的工單所有權、狀態與重複提交仍由後端強制驗證。
+  const canSubmitOwnSurvey = session?.roleCode === "user";
+  const ticketCanBeRated =
+    Boolean(canSubmitOwnSurvey) &&
+    Boolean(ticketDetail) &&
+    ["已解決", "已結案", "已關閉"].includes(ticketDetail!.ticket.status) &&
+    !Boolean(ticketDetail!.ticket.surveySubmitted);
   const initials = (session?.displayName || "U").slice(0, 2).toUpperCase();
 
   if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span></main>;
@@ -1213,9 +1288,38 @@ export default function Home() {
           <dl className="ticket-facts"><div><dt>申請人</dt><dd>{ticketDetail.ticket.requesterName}／{ticketDetail.ticket.department}</dd></div><div><dt>聯絡信箱</dt><dd>{ticketDetail.ticket.requesterEmail}</dd></div><div><dt>類別</dt><dd>{ticketDetail.ticket.category}</dd></div><div><dt>指派對象</dt><dd>{ticketDetail.ticket.assignedTeam}</dd></div><div><dt>地點</dt><dd>{ticketDetail.ticket.location || "未填寫"}</dd></div><div><dt>設備編號</dt><dd>{ticketDetail.ticket.assetTag || "未填寫"}</dd></div></dl>
           <div className="ticket-description"><b>問題描述</b><p>{ticketDetail.ticket.description}</p></div>
           {canUpdateTickets ? <div className="ticket-update"><label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label><label>處理備註<textarea value={ticketNote} onChange={e=>setTicketNote(e.target.value)} placeholder="記錄處理進度、測試結果或解決方式"/></label></div> : <div className="account-auth-note"><ShieldCheck size={18}/><span><b>此角色為工單唯讀權限</b><small>一般使用者可以查看自己的工單與處理歷程，但不可變更工單狀態。</small></span></div>}
+          {canSubmitOwnSurvey &&
+            ["已解決", "已結案", "已關閉"].includes(ticketDetail.ticket.status) && (
+              <div className={`ticket-rating-card ${ticketDetail.ticket.surveySubmitted ? "completed" : ""}`}>
+                <div>
+                  <span className="eyebrow">SERVICE FEEDBACK</span>
+                  <b>{ticketDetail.ticket.surveySubmitted ? "已完成服務評分" : "請協助評價本次資訊服務"}</b>
+                  <small>{ticketDetail.ticket.surveySubmitted ? "感謝您的回饋，此工單不可重複評分。" : "評分將用於改善回應速度、專業能力與溝通品質。"}</small>
+                </div>
+                {ticketCanBeRated && <button className="primary" onClick={() => setSurveyOpen(true)}>立即評分</button>}
+                {ticketDetail.ticket.surveySubmitted && <span className="ticket-rating-completed">✓ 已完成</span>}
+              </div>
+            )}
           <div className="ticket-timeline"><h4>處理歷程</h4>{ticketDetail.events.map((event,index)=><article key={`${event.createdAt}-${index}`}><i/><div><b>{event.toStatus ? `${event.fromStatus} → ${event.toStatus}` : "工單已建立"}</b><p>{event.note}</p><small>{event.actorName}・{new Date(event.createdAt).toLocaleString("zh-TW")}</small></div></article>)}</div>
           <div className="detail-actions"><button className="secondary" onClick={()=>setTicketDetail(null)}>關閉</button>{canUpdateTickets && <button className="primary" disabled={updatingTicket} onClick={()=>void updateTicket()}>{updatingTicket ? "正在儲存…" : "更新工單與歷程"}</button>}</div>
         </div></div>}
+        {surveyOpen && ticketDetail && canSubmitOwnSurvey && <div className="modal-backdrop" onMouseDown={() => !submittingRating && setSurveyOpen(false)}>
+          <div className="modal card ticket-survey-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="card-head">
+              <div><span className="eyebrow">IT SERVICE QUALITY</span><h3>工單服務評分</h3><p>{ticketDetail.ticket.ticketNumber}・{ticketDetail.ticket.assignedTeam}</p></div>
+              <button className="secondary" disabled={submittingRating} onClick={() => setSurveyOpen(false)}>關閉</button>
+            </div>
+            <div className="survey-question-grid">
+              <label>回應與處理速度<select value={ticketRating.response} onChange={(event) => setTicketRating({...ticketRating, response:event.target.value})}>{["5","4","3","2","1"].map((score) => <option key={score} value={score}>{score} 分</option>)}</select></label>
+              <label>問題解決專業度<select value={ticketRating.expertise} onChange={(event) => setTicketRating({...ticketRating, expertise:event.target.value})}>{["5","4","3","2","1"].map((score) => <option key={score} value={score}>{score} 分</option>)}</select></label>
+              <label>說明與溝通品質<select value={ticketRating.communication} onChange={(event) => setTicketRating({...ticketRating, communication:event.target.value})}>{["5","4","3","2","1"].map((score) => <option key={score} value={score}>{score} 分</option>)}</select></label>
+              <label>本次問題是否已解決？<select value={ticketRating.resolved} onChange={(event) => setTicketRating({...ticketRating, resolved:event.target.value})}><option>是</option><option>部分解決</option><option>否</option></select></label>
+            </div>
+            <label className="ticket-rating-comment">服務意見與改善建議<textarea value={ticketRating.comment} onChange={(event) => setTicketRating({...ticketRating, comment:event.target.value})} placeholder="可填寫本次服務感受或改善建議"/></label>
+            <div className="survey-privacy-note"><ShieldCheck size={18}/><span><b>評分權限已驗證</b><small>系統只接受本人已完成工單，且每張工單只能提交一次。</small></span></div>
+            <div className="detail-actions"><button className="secondary" disabled={submittingRating} onClick={() => setSurveyOpen(false)}>取消</button><button className="primary" disabled={submittingRating} onClick={() => void submitTicketRating()}>{submittingRating ? "正在送出…" : "送出服務評分"}</button></div>
+          </div>
+        </div>}
         {toast && <div className="toast">✓ {toast}</div>}
       </section>
     </main>

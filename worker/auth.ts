@@ -9,6 +9,10 @@ export type Permission =
   | "services.read"
   | "services.write"
   | "surveys.read"
+  | "surveys.submit.own"
+  | "surveys.read.own"
+  | "surveys.read.all"
+  | "surveys.followup.manage"
   | "rbac.manage"
   | "audit.read";
 
@@ -84,21 +88,21 @@ const systemRoles = [
     code: "admin",
     name: "系統管理人員",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read","rbac.manage","audit.read"]',
+      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all","surveys.followup.manage","rbac.manage","audit.read"]',
   },
   {
     id: "role-operator",
     code: "operator",
     name: "MIS 維運人員",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read"]',
+      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all"]',
   },
   {
     id: "role-user",
     code: "user",
     name: "一般使用者",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","assets.read","services.read"]',
+      '["dashboard.read","tickets.create","tickets.read.own","assets.read","services.read","surveys.submit.own","surveys.read.own"]',
   },
 ] as const;
 

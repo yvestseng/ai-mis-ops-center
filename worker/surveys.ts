@@ -1,3 +1,9 @@
+import {
+  requireIdentity,
+  requirePermission,
+  type Identity,
+} from "./auth";
+
 type SurveyType = "system_usage" | "it_service";
 
 type SurveyPayload = {
@@ -59,7 +65,7 @@ function sqliteConflict(error: unknown) {
   return message.includes("UNIQUE constraint failed");
 }
 
-async function createSurvey(request: Request, db: D1Database) {
+async function createSurvey(request: Request, db: D1Database, identity: Identity) {
   let payload: SurveyPayload;
 
   try {
@@ -84,6 +90,18 @@ async function createSurvey(request: Request, db: D1Database) {
     );
   }
 
+  if (payload.surveyType === "it_service") {
+    if (identity.roleCode !== "user") {
+      return json(
+        {
+          error: "SURVEY_ROLE_NOT_ALLOWED",
+          message: "只有一般使用者可以評價資訊服務。",
+        },
+        403,
+      );
+    }
+  }
+
   const submissionKey = textValue(payload.submissionKey, 80);
   const respondentToken = textValue(payload.respondentToken, 120);
   const comment = textValue(payload.comment, 2000);
@@ -92,7 +110,7 @@ async function createSurvey(request: Request, db: D1Database) {
       ? (payload.answers as Record<string, unknown>)
       : {};
 
-  if (!submissionKey || !respondentToken) {
+  if (!submissionKey) {
     return json(
       {
         error: "MISSING_IDENTITY",
@@ -101,6 +119,9 @@ async function createSurvey(request: Request, db: D1Database) {
       400,
     );
   }
+
+  const effectiveRespondentToken =
+    respondentToken || identity.email;
 
   const answerRows: Array<[string, string, number | null]> = [];
   let overallScore = 0;
@@ -153,7 +174,6 @@ async function createSurvey(request: Request, db: D1Database) {
       payload.ticketReference,
       40,
     ).toUpperCase();
-    engineerName = textValue(payload.engineer, 80);
     resolvedStatus = textValue(payload.resolved, 20);
 
     if (
@@ -161,17 +181,81 @@ async function createSurvey(request: Request, db: D1Database) {
       expertise === null ||
       communication === null ||
       !ticketReference ||
-      !engineerName ||
       !["是", "部分解決", "否"].includes(resolvedStatus)
     ) {
       return json(
         {
           error: "INVALID_ANSWER",
-          message: "請填寫工單編號並完成所有服務評分。",
+          message: "請完成所有服務評分。",
         },
         400,
       );
     }
+
+    const ticket = await db
+      .prepare(
+        `SELECT ticket_number AS ticketNumber,
+                requester_email AS requesterEmail,
+                assigned_team AS assignedTeam,
+                status
+         FROM tickets
+         WHERE ticket_number = ?
+           AND lower(requester_email) = lower(?)
+         LIMIT 1`,
+      )
+      .bind(ticketReference, identity.email)
+      .first<{
+        ticketNumber: string;
+        requesterEmail: string;
+        assignedTeam: string | null;
+        status: string;
+      }>();
+
+    if (!ticket) {
+      return json(
+        {
+          error: "TICKET_NOT_FOUND",
+          message: "找不到此工單，或您沒有此工單的評分權限。",
+        },
+        404,
+      );
+    }
+
+    if (!["已解決", "已結案", "已關閉"].includes(ticket.status)) {
+      return json(
+        {
+          error: "TICKET_NOT_RESOLVED",
+          message: "工單必須先完成處理，才能提交服務評分。",
+        },
+        409,
+      );
+    }
+
+    const existing = await db
+      .prepare(
+        `SELECT id
+         FROM survey_responses
+         WHERE survey_type = 'it_service'
+           AND ticket_reference = ?
+         LIMIT 1`,
+      )
+      .bind(ticketReference)
+      .first<{ id: string }>();
+
+    if (existing) {
+      return json(
+        {
+          error: "DUPLICATE_SUBMISSION",
+          message: "此工單已完成服務調查，請勿重複送出。",
+        },
+        409,
+      );
+    }
+
+    engineerName =
+      ticket.assignedTeam ||
+      textValue(payload.engineer, 80) ||
+      "MIS 服務台";
 
     overallScore = Number(
       ((response + expertise + communication) / 3).toFixed(2),
@@ -205,8 +289,8 @@ async function createSurvey(request: Request, db: D1Database) {
 
   const respondentHash = await sha256(
     payload.surveyType === "it_service" && ticketReference
-      ? `${respondentToken}:${ticketReference}`
-      : respondentToken,
+      ? `${identity.email}:${ticketReference}`
+      : `${identity.email}:${effectiveRespondentToken}`,
   );
 
   const statements = [
@@ -364,39 +448,38 @@ export function handleSurveyRequest(
   request: Request,
   db: D1Database,
 ) {
-  if (request.method === "POST") {
-    return createSurvey(request, db).catch((error) => {
-      console.error("survey request failed", error);
+  const task = (async () => {
+    if (request.method === "POST") {
+      const auth = await requireIdentity(request, db);
+      if (!auth.identity) return auth.response!;
+      if (auth.response) return auth.response;
+      return createSurvey(request, db, auth.identity);
+    }
 
-      return json(
-        {
-          error: "SURVEY_REQUEST_FAILED",
-          message: "問卷暫時無法儲存，請稍後再試。",
-        },
-        500,
-      );
-    });
-  }
+    if (request.method === "GET") {
+      const auth = await requirePermission(request, db, "surveys.read");
+      if (!auth.identity) return auth.response!;
+      if (auth.response) return auth.response;
+      return getSurveyStats(db);
+    }
 
-  if (request.method === "GET") {
-    return getSurveyStats(db).catch((error) => {
-      console.error("survey stats failed", error);
+    return json(
+      {
+        error: "METHOD_NOT_ALLOWED",
+        message: "不支援此操作。",
+      },
+      405,
+    );
+  })();
 
-      return json(
-        {
-          error: "SURVEY_STATS_FAILED",
-          message: "問卷統計暫時無法讀取。",
-        },
-        500,
-      );
-    });
-  }
-
-  return json(
-    {
-      error: "METHOD_NOT_ALLOWED",
-      message: "不支援此操作。",
-    },
-    405,
-  );
+  return Promise.resolve(task).catch((error) => {
+    console.error("survey request failed", error);
+    return json(
+      {
+        error: "SURVEY_REQUEST_FAILED",
+        message: "問卷服務暫時無法使用，請稍後再試。",
+      },
+      500,
+    );
+  });
 }

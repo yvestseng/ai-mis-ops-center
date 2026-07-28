@@ -193,3 +193,91 @@
   .test-account-grid button{grid-template-columns:1fr auto;align-items:center}
   .test-account-grid button small{grid-column:1/-1}
 }
+
+
+/* End-user ticket service rating */
+.ticket-rating-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin-top:16px;
+  padding:16px;
+  border:1px solid #cfe0ff;
+  border-radius:12px;
+  background:linear-gradient(135deg,#f7faff,#eef5ff);
+}
+.ticket-rating-card>div{display:grid;gap:4px}
+.ticket-rating-card b{font-size:14px;color:#17375e}
+.ticket-rating-card small{color:#667085;font-size:10px;line-height:1.55}
+.ticket-rating-card.completed{
+  border-color:#b9e7d0;
+  background:linear-gradient(135deg,#f5fcf8,#edf9f2);
+}
+.ticket-rating-completed{
+  display:inline-flex;
+  align-items:center;
+  padding:7px 11px;
+  border-radius:999px;
+  background:#dff5e9;
+  color:#087443;
+  font-size:10px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.ticket-survey-modal{
+  width:min(720px,calc(100vw - 30px));
+  max-height:90vh;
+  overflow:auto;
+}
+.ticket-survey-modal .survey-question-grid{
+  margin-top:18px;
+}
+.ticket-survey-modal label{
+  display:grid;
+  gap:7px;
+  color:#344054;
+  font-size:11px;
+  font-weight:750;
+}
+.ticket-survey-modal select,
+.ticket-survey-modal textarea{
+  width:100%;
+  border:1px solid #d0d7e2;
+  border-radius:9px;
+  background:#fff;
+  padding:10px;
+  font:13px inherit;
+}
+.ticket-rating-comment{
+  margin-top:15px;
+}
+.ticket-rating-comment textarea{
+  min-height:100px;
+  resize:vertical;
+}
+.survey-privacy-note{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  margin-top:14px;
+  padding:12px 14px;
+  border:1px solid #b9d1ff;
+  border-radius:10px;
+  background:#f3f7ff;
+  color:#155eef;
+}
+.survey-privacy-note span{display:grid;gap:3px}
+.survey-privacy-note b{font-size:11px}
+.survey-privacy-note small{color:#526982;font-size:10px;line-height:1.55}
+@media(max-width:640px){
+  .ticket-rating-card{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .ticket-rating-card .primary,
+  .ticket-rating-completed{
+    width:100%;
+    justify-content:center;
+  }
+}

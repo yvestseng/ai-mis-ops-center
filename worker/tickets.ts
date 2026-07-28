@@ -155,6 +155,7 @@ async function createTicket(
         assetTag,
         assignedTeam,
         status: "待處理",
+        surveySubmitted: false,
         createdAt: now,
         updatedAt: now,
       },
@@ -187,6 +188,12 @@ async function listTickets(
               asset_tag AS assetTag,
               assigned_team AS assignedTeam,
               status,
+              EXISTS(
+                SELECT 1
+                FROM survey_responses sr
+                WHERE sr.survey_type = 'it_service'
+                  AND sr.ticket_reference = tickets.ticket_number
+              ) AS surveySubmitted,
               created_at AS createdAt,
               updated_at AS updatedAt
        FROM tickets
@@ -214,6 +221,12 @@ async function getTicket(
                 requester_email AS requesterEmail, department, title, description,
                 category, priority, source, location, asset_tag AS assetTag,
                 assigned_team AS assignedTeam, status,
+                EXISTS(
+                  SELECT 1
+                  FROM survey_responses sr
+                  WHERE sr.survey_type = 'it_service'
+                    AND sr.ticket_reference = tickets.ticket_number
+                ) AS surveySubmitted,
                 created_at AS createdAt, updated_at AS updatedAt
          FROM tickets WHERE id = ? AND (? = 1 OR requester_hash = ?)`,
       )
