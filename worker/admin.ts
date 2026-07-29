@@ -8,7 +8,7 @@ import {
   type Permission,
 } from "./auth";
 
-type Entity = "users" | "roles" | "assets" | "services" | "audit";
+type Entity = "users" | "roles" | "teams" | "assets" | "services" | "audit";
 
 function clean(value: unknown, length = 200) {
   return typeof value === "string" ? value.trim().slice(0, length) : "";
@@ -28,6 +28,7 @@ const entityPermission: Record<
 > = {
   users: { read: "rbac.manage", write: "rbac.manage" },
   roles: { read: "rbac.manage", write: "rbac.manage" },
+  teams: { read: "rbac.manage", write: "rbac.manage" },
   assets: { read: "assets.read", write: "assets.write" },
   services: { read: "services.read", write: "services.write" },
   audit: { read: "audit.read" },
@@ -49,6 +50,16 @@ async function list(entity: Entity, db: D1Database) {
     roles: `SELECT id, code, name, permissions, is_system AS isSystem,
                    created_at AS createdAt, updated_at AS updatedAt
             FROM roles ORDER BY is_system DESC, name`,
+    teams: `SELECT st.id, st.team_code AS teamCode, st.team_name AS teamName,
+                   st.description, st.display_order AS displayOrder,
+                   st.is_active AS isActive,
+                   COUNT(u.id) AS memberCount,
+                   SUM(CASE WHEN u.is_assignable = 1 AND u.status = 'active' THEN 1 ELSE 0 END) AS assignableCount,
+                   st.created_at AS createdAt, st.updated_at AS updatedAt
+            FROM support_teams st
+            LEFT JOIN app_users u ON u.team_id = st.id
+            GROUP BY st.id
+            ORDER BY st.display_order, st.team_name`,
     assets: `SELECT id, asset_tag AS assetTag, name, asset_type AS assetType,
                     owner_name AS ownerName, department, location, status,
                     warranty_end AS warrantyEnd, notes,
@@ -66,6 +77,34 @@ async function list(entity: Entity, db: D1Database) {
   };
   const result = await db.prepare(sql[entity]).all();
   return json({ items: result.results });
+}
+
+async function createTeam(
+  data: Record<string, unknown>,
+  db: D1Database,
+  identity: Identity,
+) {
+  const teamCode = clean(data.teamCode, 40).toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+  const teamName = clean(data.teamName, 100);
+  const description = clean(data.description, 500) || null;
+  const displayOrder = Math.max(0, Math.min(9999, Number(data.displayOrder) || 0));
+  if (!teamCode || !teamName) {
+    return json({ message: "團隊代碼與團隊名稱為必填。" }, 400);
+  }
+  const id = `team-${teamCode.toLowerCase().replace(/_/g, "-")}`;
+  const now = new Date().toISOString();
+  try {
+    await db.prepare(
+      `INSERT INTO support_teams
+       (id, team_code, team_name, description, display_order, is_active,
+        created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+    ).bind(id, teamCode, teamName, description, displayOrder, now, identity.email, now, identity.email).run();
+    await audit(db, identity, "create", "team", id, { teamCode, teamName });
+    return json({ ok: true, id, message: "維運團隊已建立。" }, 201);
+  } catch {
+    return json({ message: "團隊代碼或名稱已存在。" }, 409);
+  }
 }
 
 async function createUser(
@@ -329,6 +368,29 @@ async function update(
         )
         .run();
     }
+  } else if (entity === "teams") {
+    const teamCode = clean(data.teamCode, 40).toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    const teamName = clean(data.teamName, 100);
+    const displayOrder = Math.max(0, Math.min(9999, Number(data.displayOrder) || 0));
+    const isActive = data.isActive === true || data.isActive === 1 ? 1 : 0;
+    if (!teamCode || !teamName) {
+      return json({ message: "團隊代碼與團隊名稱為必填。" }, 400);
+    }
+    await db.prepare(
+      `UPDATE support_teams
+       SET team_code=?, team_name=?, description=?, display_order=?,
+           is_active=?, updated_at=?, updated_by=?
+       WHERE id=?`,
+    ).bind(
+      teamCode,
+      teamName,
+      clean(data.description, 500) || null,
+      displayOrder,
+      isActive,
+      now,
+      identity.email,
+      id,
+    ).run();
   } else if (entity === "roles") {
     const permissions = Array.isArray(data.permissions)
       ? JSON.stringify(data.permissions.map((x) => clean(x, 80)).filter(Boolean))
@@ -394,6 +456,23 @@ async function remove(
   if (entity === "users" && id === "user-owner") {
     return json({ message: "主要系統管理員不可刪除。" }, 400);
   }
+  if (entity === "teams") {
+    const usage = await db.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM app_users WHERE team_id = ?) AS userCount,
+         (SELECT COUNT(*) FROM tickets WHERE assigned_team_id = ? OR ai_suggested_team_id = ?) AS ticketCount`,
+    ).bind(id, id, id).first<{ userCount: number; ticketCount: number }>();
+    if (Number(usage?.userCount || 0) > 0 || Number(usage?.ticketCount || 0) > 0) {
+      await db.prepare(
+        "UPDATE support_teams SET is_active=0, updated_at=?, updated_by=? WHERE id=?",
+      ).bind(new Date().toISOString(), identity.email, id).run();
+      await audit(db, identity, "deactivate", "team", id, usage);
+      return json({ ok: true, message: "此團隊已有關聯資料，已改為停用而非刪除。" });
+    }
+    await db.prepare("DELETE FROM support_teams WHERE id = ?").bind(id).run();
+    await audit(db, identity, "delete", "team", id);
+    return json({ ok: true, message: "維運團隊已刪除。" });
+  }
   const table =
     entity === "users"
       ? "app_users"
@@ -435,6 +514,7 @@ export async function handleAdminRequest(
   }
   if (request.method === "POST" && !id) {
     if (entity === "users") return createUser(data!, db, auth.identity);
+    if (entity === "teams") return createTeam(data!, db, auth.identity);
     if (entity === "assets") return createAsset(data!, db, auth.identity);
     if (entity === "services") return createService(data!, db, auth.identity);
   }

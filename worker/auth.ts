@@ -301,20 +301,7 @@ async function ensureAuthSchema(db: D1Database) {
 }
 
 async function ensureDemoAccounts(db: D1Database) {
-  const existing = await db
-    .prepare(
-      `SELECT COUNT(*) AS count FROM app_users
-       WHERE (id = 'user-demo-admin' AND password_hash = ?)
-          OR (id = 'user-demo-operator' AND password_hash = ?)
-          OR (id = 'user-demo-user' AND password_hash = ?)`,
-    )
-    .bind(
-      demoAccounts[0].passwordHash,
-      demoAccounts[1].passwordHash,
-      demoAccounts[2].passwordHash,
-    )
-    .first<{ count: number }>();
-  // Always upsert system roles so permission changes are synchronized.
+// Always upsert system roles so permission changes are synchronized.
 
   const now = new Date().toISOString();
   await db.batch([

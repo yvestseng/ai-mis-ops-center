@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Boxes,
+  Building2,
   ChartNoAxesCombined,
   Database,
   FileClock,
@@ -11,6 +12,7 @@ import {
   ServerCog,
   ShieldCheck,
   Trash2,
+  UserCog,
   UsersRound,
 } from "lucide-react";
 
@@ -87,17 +89,15 @@ export function RbacConsole() {
   const [roles, setRoles] = useState<ApiItem[]>([]);
   const [teams, setTeams] = useState<ApiItem[]>([]);
   const [auditItems, setAuditItems] = useState<ApiItem[]>([]);
-  const [tab, setTab] = useState<"users" | "roles" | "audit">("users");
-  const [modal, setModal] = useState<"user" | "password" | null>(null);
+  const [tab, setTab] = useState<"users" | "roles" | "teams" | "members" | "audit">("users");
+  const [modal, setModal] = useState<"user" | "password" | "team" | null>(null);
+  const [editingTeam, setEditingTeam] = useState<ApiItem | null>(null);
   const [form, setForm] = useState({
-    username: "",
-    password: "",
-    displayName: "",
-    email: "",
-    department: "",
-    roleId: "role-user",
-    teamId: "",
-    isAssignable: false,
+    username: "", password: "", displayName: "", email: "", department: "",
+    roleId: "role-user", teamId: "", isAssignable: false,
+  });
+  const [teamForm, setTeamForm] = useState({
+    teamCode: "", teamName: "", description: "", displayOrder: 10, isActive: true,
   });
   const [passwordTarget, setPasswordTarget] = useState<ApiItem | null>(null);
   const [resetUsername, setResetUsername] = useState("");
@@ -106,25 +106,13 @@ export function RbacConsole() {
 
   const load = useCallback(async () => {
     const [u, r, a, t] = await Promise.all([
-      api("/api/admin/users"),
-      api("/api/admin/roles"),
-      api("/api/admin/audit"),
-      fetch("/api/support-teams", { cache: "no-store" }).then(async response => {
-        const result = await response.json() as { teams?: ApiItem[]; message?: string };
-        if (!response.ok) throw new Error(result.message || "維運團隊讀取失敗");
-        return { items: result.teams || [] };
-      }),
+      api("/api/admin/users"), api("/api/admin/roles"), api("/api/admin/audit"), api("/api/admin/teams"),
     ]);
-    setUsers(u.items || []);
-    setRoles(r.items || []);
-    setAuditItems(a.items || []);
-    setTeams(t.items || []);
+    setUsers(u.items || []); setRoles(r.items || []); setAuditItems(a.items || []); setTeams(t.items || []);
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load().catch((error) => setMessage(error.message));
-    }, 0);
+    const timer = window.setTimeout(() => void load().catch((error) => setMessage(error.message)), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
   const flash = (value: string) => { setMessage(value); window.setTimeout(() => setMessage(""), 2400); };
@@ -134,105 +122,83 @@ export function RbacConsole() {
     const result = await api("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
     setModal(null);
     setForm({ username: "", password: "", displayName: "", email: "", department: "", roleId: "role-user", teamId: "", isAssignable: false });
-    await load();
-    flash(result.message || "使用者已建立");
+    await load(); flash(result.message || "使用者已建立");
   }
-
   async function updateUser(id: string, changes: Record<string, unknown>) {
     const result = await api(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(changes) });
-    await load();
-    flash(result.message || "使用者已更新");
+    await load(); flash(result.message || "使用者已更新");
   }
-
   async function removeUser(id: string) {
     if (!window.confirm("確定要刪除此使用者？")) return;
     const result = await api(`/api/admin/users/${id}`, { method: "DELETE" });
-    await load();
-    flash(result.message || "使用者已刪除");
+    await load(); flash(result.message || "使用者已刪除");
   }
-
   async function resetPassword(event: React.FormEvent) {
-    event.preventDefault();
-    if (!passwordTarget) return;
-    const result = await api(`/api/admin/users/${passwordTarget.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ username: resetUsername, newPassword }),
-    });
-    setModal(null);
-    setPasswordTarget(null);
-    setResetUsername("");
-    setNewPassword("");
-    await load();
-    flash(result.message || "密碼已重設，舊工作階段已失效");
+    event.preventDefault(); if (!passwordTarget) return;
+    const result = await api(`/api/admin/users/${passwordTarget.id}`, { method: "PATCH", body: JSON.stringify({ username: resetUsername, newPassword }) });
+    setModal(null); setPasswordTarget(null); setResetUsername(""); setNewPassword("");
+    await load(); flash(result.message || "密碼已重設，舊工作階段已失效");
   }
-
+  async function saveTeam(event: React.FormEvent) {
+    event.preventDefault();
+    const path = editingTeam ? `/api/admin/teams/${editingTeam.id}` : "/api/admin/teams";
+    const result = await api(path, { method: editingTeam ? "PATCH" : "POST", body: JSON.stringify(teamForm) });
+    setModal(null); setEditingTeam(null);
+    setTeamForm({ teamCode: "", teamName: "", description: "", displayOrder: 10, isActive: true });
+    await load(); flash(result.message || "維運團隊已儲存");
+  }
+  function openTeam(team?: ApiItem) {
+    setEditingTeam(team || null);
+    setTeamForm(team ? {
+      teamCode: String(team.teamCode || ""), teamName: String(team.teamName || ""),
+      description: String(team.description || ""), displayOrder: Number(team.displayOrder || 0),
+      isActive: Boolean(team.isActive),
+    } : { teamCode: "", teamName: "", description: "", displayOrder: (teams.length + 1) * 10, isActive: true });
+    setModal("team");
+  }
+  async function removeTeam(id: string) {
+    if (!window.confirm("確定要刪除或停用此維運團隊？已有關聯資料時系統會自動改為停用。")) return;
+    const result = await api(`/api/admin/teams/${id}`, { method: "DELETE" });
+    await load(); flash(result.message || "團隊已處理");
+  }
   async function toggleRolePermission(role: ApiItem, permission: string) {
     const roleCode = String(role.code);
-    const userOnlyPermissions = new Set([
-      "surveys.submit.own",
-      "surveys.read.own",
-    ]);
-
-    if (userOnlyPermissions.has(permission) && roleCode !== "user") {
-      flash("服務評分權限僅能授予一般使用者");
-      return;
-    }
-
-    if (
-      roleCode === "user" &&
-      userOnlyPermissions.has(permission)
-    ) {
-      flash("一般使用者的服務評分權限為必要權限，不可移除");
-      return;
-    }
-
+    const userOnlyPermissions = new Set(["surveys.submit.own", "surveys.read.own"]);
+    if (userOnlyPermissions.has(permission) && roleCode !== "user") return flash("服務評分權限僅能授予一般使用者");
+    if (roleCode === "user" && userOnlyPermissions.has(permission)) return flash("一般使用者的服務評分權限為必要權限，不可移除");
     const current = JSON.parse(String(role.permissions || "[]")) as string[];
-    const permissions = current.includes(permission)
-      ? current.filter((item) => item !== permission)
-      : [...current, permission];
+    const permissions = current.includes(permission) ? current.filter((item) => item !== permission) : [...current, permission];
+    await api(`/api/admin/roles/${role.id}`, { method: "PATCH", body: JSON.stringify({ permissions }) });
+    await load(); flash("角色權限已儲存並立即生效");
+  }
+  const operationalUsers = users.filter((user) => String(user.roleCode) !== "user");
 
-    await api(`/api/admin/roles/${role.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ permissions }),
-    });
-    await load();
-    flash("角色權限已儲存並立即生效");
-  }
+  return <section className="management-console">
+    <div className="page-heading"><div><span className="eyebrow">SERVER-SIDE RBAC</span><h2>權限管理</h2><p>集中管理使用者與角色、維運團隊、派工成員及稽核紀錄。</p></div>{tab === "teams" ? <button className="primary" onClick={() => openTeam()}><Plus size={16}/> 新增團隊</button> : tab === "users" ? <button className="primary" onClick={() => setModal("user")}><Plus size={16}/> 新增使用者</button> : null}</div>
+    <div className="admin-stats"><article><b>{users.length}</b><span>授權帳號</span></article><article><b>{teams.filter((x) => Boolean(x.isActive)).length}</b><span>啟用團隊</span></article><article><b>{operationalUsers.filter((x) => Boolean(x.isAssignable)).length}</b><span>可派工成員</span></article><article><b>{auditItems.length}</b><span>最近稽核事件</span></article></div>
+    <nav className="governance-tabs card">
+      <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}><UsersRound size={15}/> 使用者與角色</button>
+      <button className={tab === "roles" ? "active" : ""} onClick={() => setTab("roles")}><ShieldCheck size={15}/> 角色權限</button>
+      <button className={tab === "teams" ? "active" : ""} onClick={() => setTab("teams")}><Building2 size={15}/> 維運團隊</button>
+      <button className={tab === "members" ? "active" : ""} onClick={() => setTab("members")}><UserCog size={15}/> 派工成員</button>
+      <button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><FileClock size={15}/> 稽核紀錄</button>
+    </nav>
 
-  return (
-    <section className="management-console">
-      <div className="page-heading"><div><span className="eyebrow">SERVER-SIDE RBAC</span><h2>權限與稽核管理</h2><p>帳號、角色與權限由 D1 管理，每次異動均留下稽核紀錄。</p></div><button className="primary" onClick={() => setModal("user")}><Plus size={16}/> 新增使用者</button></div>
-      <div className="admin-stats"><article><b>{users.length}</b><span>授權帳號</span></article><article><b>{roles.length}</b><span>RBAC 角色</span></article><article><b>{users.filter((x) => x.status === "active").length}</b><span>啟用帳號</span></article><article><b>{auditItems.length}</b><span>最近稽核事件</span></article></div>
-      <nav className="governance-tabs card">
-        <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}><UsersRound size={15}/> 使用者</button>
-        <button className={tab === "roles" ? "active" : ""} onClick={() => setTab("roles")}><ShieldCheck size={15}/> 角色權限</button>
-        <button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><FileClock size={15}/> 稽核紀錄</button>
-      </nav>
-      {tab === "users" && <div className="card data-table"><div className="account-auth-note"><ShieldCheck size={18}/><span><b>內建測試帳號登入</b><small>新增時必須設定帳號與初始密碼；資料庫只保存 PBKDF2 雜湊，管理員可補設帳號或重設密碼。</small></span></div><table><thead><tr><th>使用者</th><th>測試帳號</th><th>部門</th><th>角色</th><th>維運團隊</th><th>可派工</th><th>密碼狀態</th><th>狀態</th><th>最近登入</th><th>操作</th></tr></thead><tbody>{users.map((user) => <tr key={String(user.id)}><td><b>{String(user.displayName)}</b><small>{String(user.email)}</small></td><td><b>{String(user.username || "尚未設定")}</b></td><td>{String(user.department || "未設定")}</td><td><select value={String(user.roleId)} onChange={(event) => void updateUser(String(user.id), { roleId: event.target.value })}>{roles.map((role) => <option key={String(role.id)} value={String(role.id)}>{String(role.name)}</option>)}</select></td><td><select value={String(user.teamId || "")} disabled={String(user.roleCode)==="user"} onChange={(event)=>void updateUser(String(user.id),{teamId:event.target.value,isAssignable:Boolean(user.isAssignable)})}><option value="">未指定</option>{teams.map(team=><option key={String(team.id)} value={String(team.id)}>{String(team.teamName)}</option>)}</select></td><td><input type="checkbox" checked={Boolean(user.isAssignable)} disabled={String(user.roleCode)==="user" || !user.teamId} onChange={(event)=>void updateUser(String(user.id),{teamId:user.teamId,isAssignable:event.target.checked})}/></td><td><span className={`sso-pill ${user.hasPassword ? "ready" : ""}`}>{user.hasPassword ? "可登入" : "待重設"}</span></td><td><button className={`state-pill ${user.status === "active" ? "good" : ""}`} onClick={() => void updateUser(String(user.id), { status: user.status === "active" ? "disabled" : "active" })}>{user.status === "active" ? "啟用" : "停用"}</button></td><td>{user.lastLoginAt ? new Date(String(user.lastLoginAt)).toLocaleString("zh-TW") : "待首次登入"}</td><td><div className="row-actions"><button aria-label="重設密碼" title="重設密碼" onClick={() => { setPasswordTarget(user); setResetUsername(String(user.username || user.email || "").split("@")[0].toLowerCase()); setNewPassword(""); setModal("password"); }}><Pencil size={15}/></button><button aria-label="刪除使用者" title="刪除使用者" onClick={() => void removeUser(String(user.id))}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}
-      {tab === "roles" && <div className="role-grid">{roles.map((role) => { const permissions = JSON.parse(String(role.permissions || "[]")) as string[]; return <article className="card role-card" key={String(role.id)}><div className="card-head"><div><h3>{String(role.name)}</h3><p>{String(role.code)} · {permissions.length} 項權限</p></div><ShieldCheck size={24}/></div><div className="permission-checks">{allPermissions.map(([code, label]) => <label key={code}><span>{label}<small>{code}</small></span><input
-  type="checkbox"
-  checked={permissions.includes(code)}
-  disabled={
-    role.code === "admin" ||
-    ((code === "surveys.submit.own" || code === "surveys.read.own") &&
-      role.code !== "user") ||
-    (role.code === "user" &&
-      (code === "surveys.submit.own" || code === "surveys.read.own"))
-  }
-  title={
-    (code === "surveys.submit.own" || code === "surveys.read.own") &&
-    role.code !== "user"
-      ? "此權限僅限一般使用者"
-      : undefined
-  }
-  onChange={() => void toggleRolePermission(role, code)}
-/></label>)}</div></article>; })}</div>}
-      {tab === "audit" && <div className="card data-table"><table><thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>資料類型</th><th>識別碼</th></tr></thead><tbody>{auditItems.map((row) => <tr key={String(row.id)}><td>{new Date(String(row.createdAt)).toLocaleString("zh-TW")}</td><td>{String(row.actorEmail)}</td><td><span className="state-pill">{String(row.action)}</span></td><td>{String(row.entityType)}</td><td>{String(row.entityId || "—")}</td></tr>)}</tbody></table></div>}
-      {modal === "user" && <Modal title="新增測試使用者" onClose={() => setModal(null)}><form className="data-form" onSubmit={(event) => void createUser(event)}><div className="auth-method-note wide"><ShieldCheck size={19}/><span><b>建立可立即登入的測試帳號</b><small>初始密碼至少 8 碼，需包含英文字母與數字；系統只保存不可逆的密碼雜湊。</small></span></div><label>登入帳號<input required autoComplete="off" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase() })} placeholder="例如 user02"/></label><label>初始密碼<input required type="password" minLength={8} autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="至少 8 碼，含英文與數字"/></label><label>姓名<input required value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })}/></label><label>電子郵件<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })}/></label><label>部門<input value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}/></label><label>角色<select value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value, teamId: event.target.value === "role-user" ? "" : form.teamId, isAssignable: event.target.value === "role-user" ? false : form.isAssignable })}>{roles.map((role) => <option key={String(role.id)} value={String(role.id)}>{String(role.name)}</option>)}</select></label><label>維運團隊<select value={form.teamId} disabled={form.roleId === "role-user"} onChange={(event)=>setForm({...form,teamId:event.target.value})}><option value="">未指定</option>{teams.map(team=><option key={String(team.id)} value={String(team.id)}>{String(team.teamName)}</option>)}</select></label><label className="checkbox-label"><input type="checkbox" checked={form.isAssignable} disabled={form.roleId === "role-user" || !form.teamId} onChange={(event)=>setForm({...form,isAssignable:event.target.checked})}/> 可接受工單指派</label><div className="form-actions wide"><button type="button" className="secondary" onClick={() => setModal(null)}>取消</button><button className="primary">建立測試帳號</button></div></form></Modal>}
-      {modal === "password" && passwordTarget && <Modal title={`設定 ${String(passwordTarget.displayName)} 登入資料`} onClose={() => setModal(null)}><form className="data-form" onSubmit={(event) => void resetPassword(event)}><div className="auth-method-note wide"><ShieldCheck size={19}/><span><b>儲存後舊工作階段會立即失效</b><small>可為舊帳號補上登入帳號；新密碼至少 8 碼，且不會以明文寫入資料庫。</small></span></div><label>登入帳號<input required minLength={3} autoComplete="off" value={resetUsername} onChange={(event) => setResetUsername(event.target.value.toLowerCase())}/></label><label>新密碼<input required minLength={8} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)}/></label><div className="form-actions wide"><button type="button" className="secondary" onClick={() => setModal(null)}>取消</button><button className="primary">儲存登入資料</button></div></form></Modal>}
-      {message && <div className="toast">{message}</div>}
-    </section>
-  );
+    {tab === "users" && <div className="card data-table"><div className="account-auth-note"><ShieldCheck size={18}/><span><b>使用者與角色管理</b><small>建立登入帳號、調整角色、啟用狀態與密碼；維運團隊及派工資格請至「派工成員」管理。</small></span></div><table><thead><tr><th>使用者</th><th>登入帳號</th><th>部門</th><th>角色</th><th>密碼狀態</th><th>狀態</th><th>最近登入</th><th>操作</th></tr></thead><tbody>{users.map((user) => <tr key={String(user.id)}><td><b>{String(user.displayName)}</b><small>{String(user.email)}</small></td><td><b>{String(user.username || "尚未設定")}</b></td><td>{String(user.department || "未設定")}</td><td><select value={String(user.roleId)} onChange={(event) => void updateUser(String(user.id), { roleId: event.target.value })}>{roles.map((role) => <option key={String(role.id)} value={String(role.id)}>{String(role.name)}</option>)}</select></td><td><span className={`sso-pill ${user.hasPassword ? "ready" : ""}`}>{user.hasPassword ? "可登入" : "待重設"}</span></td><td><button className={`state-pill ${user.status === "active" ? "good" : ""}`} onClick={() => void updateUser(String(user.id), { status: user.status === "active" ? "disabled" : "active" })}>{user.status === "active" ? "啟用" : "停用"}</button></td><td>{user.lastLoginAt ? new Date(String(user.lastLoginAt)).toLocaleString("zh-TW") : "待首次登入"}</td><td><div className="row-actions"><button aria-label="重設密碼" title="重設密碼" onClick={() => { setPasswordTarget(user); setResetUsername(String(user.username || user.email || "").split("@")[0].toLowerCase()); setNewPassword(""); setModal("password"); }}><Pencil size={15}/></button><button aria-label="刪除使用者" title="刪除使用者" onClick={() => void removeUser(String(user.id))}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}
+
+    {tab === "roles" && <div className="role-grid">{roles.map((role) => { const permissions = JSON.parse(String(role.permissions || "[]")) as string[]; return <article className="card role-card" key={String(role.id)}><div className="card-head"><div><h3>{String(role.name)}</h3><p>{String(role.code)} · {permissions.length} 項權限</p></div><ShieldCheck size={24}/></div><div className="permission-checks">{allPermissions.map(([code, label]) => <label key={code}><span>{label}<small>{code}</small></span><input type="checkbox" checked={permissions.includes(code)} disabled={role.code === "admin" || ((code === "surveys.submit.own" || code === "surveys.read.own") && role.code !== "user") || (role.code === "user" && (code === "surveys.submit.own" || code === "surveys.read.own"))} onChange={() => void toggleRolePermission(role, code)}/></label>)}</div></article>; })}</div>}
+
+    {tab === "teams" && <div className="card data-table"><div className="account-auth-note"><Building2 size={18}/><span><b>維運團隊主檔</b><small>可新增、編輯、排序及停用。已有工單或成員關聯的團隊刪除時會自動改為停用，以保留歷史資料。</small></span></div><table><thead><tr><th>排序</th><th>團隊</th><th>代碼</th><th>說明</th><th>成員</th><th>可派工</th><th>狀態</th><th>操作</th></tr></thead><tbody>{teams.map((team) => <tr key={String(team.id)}><td>{String(team.displayOrder)}</td><td><b>{String(team.teamName)}</b></td><td><code>{String(team.teamCode)}</code></td><td>{String(team.description || "—")}</td><td>{String(team.memberCount || 0)}</td><td>{String(team.assignableCount || 0)}</td><td><span className={`state-pill ${team.isActive ? "good" : ""}`}>{team.isActive ? "啟用" : "停用"}</span></td><td><div className="row-actions"><button aria-label="編輯團隊" onClick={() => openTeam(team)}><Pencil size={15}/></button><button aria-label="刪除或停用團隊" onClick={() => void removeTeam(String(team.id))}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}
+
+    {tab === "members" && <div className="card data-table"><div className="account-auth-note"><UserCog size={18}/><span><b>派工成員管理</b><small>只有系統管理員與 MIS 維運人員可設定團隊及接受派工；一般使用者不會出現在工單處理人員清單。</small></span></div><table><thead><tr><th>成員</th><th>角色</th><th>部門</th><th>所屬團隊</th><th>可接受派工</th><th>帳號狀態</th></tr></thead><tbody>{operationalUsers.map((user) => <tr key={String(user.id)}><td><b>{String(user.displayName)}</b><small>{String(user.email)}</small></td><td>{String(user.roleName)}</td><td>{String(user.department || "未設定")}</td><td><select value={String(user.teamId || "")} onChange={(event) => void updateUser(String(user.id), { teamId: event.target.value, isAssignable: event.target.value ? Boolean(user.isAssignable) : false })}><option value="">未指定</option>{teams.filter((team) => Boolean(team.isActive) || String(team.id) === String(user.teamId)).map((team) => <option key={String(team.id)} value={String(team.id)}>{String(team.teamName)}{team.isActive ? "" : "（已停用）"}</option>)}</select></td><td><label className="inline-switch"><input type="checkbox" checked={Boolean(user.isAssignable)} disabled={!user.teamId || user.status !== "active"} onChange={(event) => void updateUser(String(user.id), { teamId: user.teamId, isAssignable: event.target.checked })}/><span>{user.isAssignable ? "可派工" : "不可派工"}</span></label></td><td><span className={`state-pill ${user.status === "active" ? "good" : ""}`}>{user.status === "active" ? "啟用" : "停用"}</span></td></tr>)}</tbody></table></div>}
+
+    {tab === "audit" && <div className="card data-table"><table><thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>資料類型</th><th>識別碼</th></tr></thead><tbody>{auditItems.map((row) => <tr key={String(row.id)}><td>{new Date(String(row.createdAt)).toLocaleString("zh-TW")}</td><td>{String(row.actorEmail)}</td><td><span className="state-pill">{String(row.action)}</span></td><td>{String(row.entityType)}</td><td>{String(row.entityId || "—")}</td></tr>)}</tbody></table></div>}
+
+    {modal === "user" && <Modal title="新增測試使用者" onClose={() => setModal(null)}><form className="data-form" onSubmit={(event) => void createUser(event)}><div className="auth-method-note wide"><ShieldCheck size={19}/><span><b>建立可立即登入的測試帳號</b><small>初始密碼至少 8 碼，需包含英文字母與數字；系統只保存不可逆的密碼雜湊。</small></span></div><label>登入帳號<input required autoComplete="off" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase() })}/></label><label>初始密碼<input required type="password" minLength={8} autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })}/></label><label>姓名<input required value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })}/></label><label>電子郵件<input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })}/></label><label>部門<input value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}/></label><label>角色<select value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value, teamId: event.target.value === "role-user" ? "" : form.teamId, isAssignable: event.target.value === "role-user" ? false : form.isAssignable })}>{roles.map((role) => <option key={String(role.id)} value={String(role.id)}>{String(role.name)}</option>)}</select></label><label>維運團隊<select value={form.teamId} disabled={form.roleId === "role-user"} onChange={(event) => setForm({ ...form, teamId: event.target.value })}><option value="">未指定</option>{teams.filter((team) => Boolean(team.isActive)).map((team) => <option key={String(team.id)} value={String(team.id)}>{String(team.teamName)}</option>)}</select></label><label className="checkbox-label"><input type="checkbox" checked={form.isAssignable} disabled={form.roleId === "role-user" || !form.teamId} onChange={(event) => setForm({ ...form, isAssignable: event.target.checked })}/> 可接受工單指派</label><div className="form-actions wide"><button type="button" className="secondary" onClick={() => setModal(null)}>取消</button><button className="primary">建立測試帳號</button></div></form></Modal>}
+    {modal === "password" && passwordTarget && <Modal title={`設定 ${String(passwordTarget.displayName)} 登入資料`} onClose={() => setModal(null)}><form className="data-form" onSubmit={(event) => void resetPassword(event)}><label>登入帳號<input required minLength={3} value={resetUsername} onChange={(event) => setResetUsername(event.target.value.toLowerCase())}/></label><label>新密碼<input required minLength={8} type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)}/></label><div className="form-actions wide"><button type="button" className="secondary" onClick={() => setModal(null)}>取消</button><button className="primary">儲存登入資料</button></div></form></Modal>}
+    {modal === "team" && <Modal title={editingTeam ? "編輯維運團隊" : "新增維運團隊"} onClose={() => setModal(null)}><form className="data-form" onSubmit={(event) => void saveTeam(event)}><label>團隊代碼<input required value={teamForm.teamCode} onChange={(event) => setTeamForm({ ...teamForm, teamCode: event.target.value.toUpperCase() })} placeholder="例如 NETWORK"/></label><label>團隊名稱<input required value={teamForm.teamName} onChange={(event) => setTeamForm({ ...teamForm, teamName: event.target.value })}/></label><label>顯示順序<input type="number" min="0" max="9999" value={teamForm.displayOrder} onChange={(event) => setTeamForm({ ...teamForm, displayOrder: Number(event.target.value) })}/></label><label className="checkbox-label"><input type="checkbox" checked={teamForm.isActive} onChange={(event) => setTeamForm({ ...teamForm, isActive: event.target.checked })}/> 啟用團隊</label><label className="wide">團隊說明<textarea value={teamForm.description} onChange={(event) => setTeamForm({ ...teamForm, description: event.target.value })}/></label><div className="form-actions wide"><button type="button" className="secondary" onClick={() => setModal(null)}>取消</button><button className="primary">儲存團隊</button></div></form></Modal>}
+    {message && <div className="toast">{message}</div>}
+  </section>;
 }
 
 export function ResourceConsole({

@@ -76,13 +76,13 @@ const worker = {
     }
 
     const adminMatch = url.pathname.match(
-      /^\/api\/admin\/(users|roles|assets|services|audit)(?:\/([^/]+))?$/,
+      /^\/api\/admin\/(users|roles|teams|assets|services|audit)(?:\/([^/]+))?$/,
     );
     if (adminMatch) {
       return handleAdminRequest(
         request,
         env.DB,
-        adminMatch[1] as "users" | "roles" | "assets" | "services" | "audit",
+        adminMatch[1] as "users" | "roles" | "teams" | "assets" | "services" | "audit",
         adminMatch[2],
       );
     }

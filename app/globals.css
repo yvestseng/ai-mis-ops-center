@@ -290,3 +290,9 @@
 .checkbox-label{display:flex!important;align-items:center;gap:8px}
 .checkbox-label input{width:auto!important}
 @media(max-width:760px){.ticket-detail-modal>.assignment-editor{grid-template-columns:1fr}.assignment-editor .assignment-note{grid-column:auto}}
+
+/* RBAC team/member management */
+.inline-switch { display:inline-flex; align-items:center; gap:8px; font-weight:700; }
+.inline-switch input { width:18px; height:18px; }
+.data-table code { font-size:12px; padding:4px 7px; border-radius:6px; background:#eef4ff; color:#165dcc; }
+.governance-tabs { flex-wrap:wrap; }
