@@ -314,7 +314,7 @@ async function ensureDemoAccounts(db: D1Database) {
       demoAccounts[2].passwordHash,
     )
     .first<{ count: number }>();
-  if (Number(existing?.count || 0) === demoAccounts.length) return;
+  // Always upsert system roles so permission changes are synchronized.
 
   const now = new Date().toISOString();
   await db.batch([
