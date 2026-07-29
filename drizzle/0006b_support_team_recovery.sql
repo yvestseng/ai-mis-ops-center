@@ -1,4 +1,4 @@
-﻿PRAGMA foreign_keys = ON;
+PRAGMA foreign_keys = ON;
 
 -- =========================================================
 -- 維運團隊資料表
@@ -22,11 +22,6 @@ ON support_teams (is_active, display_order);
 -- =========================================================
 -- tickets 尚缺少的指派欄位
 -- =========================================================
-ALTER TABLE tickets ADD COLUMN assigned_team_id TEXT;
-ALTER TABLE tickets ADD COLUMN assigned_user_id TEXT;
-ALTER TABLE tickets ADD COLUMN ai_suggested_team_id TEXT;
-ALTER TABLE tickets ADD COLUMN assignment_source TEXT;
-ALTER TABLE tickets ADD COLUMN assigned_at TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_app_users_team_assignable
 ON app_users (team_id, is_assignable, status);
