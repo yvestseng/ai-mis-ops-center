@@ -34,6 +34,14 @@ type Ticket = {
   location?: string | null;
   assetTag?: string | null;
   assignedTeam: string;
+  assignedTeamId?: string | null;
+  assignedUserId?: string | null;
+  assignedUserName?: string | null;
+  assignedUserEmail?: string | null;
+  aiSuggestedTeamId?: string | null;
+  aiSuggestedTeamName?: string | null;
+  assignmentSource?: string | null;
+  assignedAt?: string | null;
   status: string;
   surveySubmitted?: boolean | number;
   createdAt: string;
@@ -47,6 +55,22 @@ type TicketEvent = {
   actorName: string;
   note?: string | null;
   createdAt: string;
+};
+
+type SupportTeam = {
+  id: string;
+  teamCode: string;
+  teamName: string;
+  description?: string | null;
+  displayOrder: number;
+};
+
+type SupportMember = {
+  id: string;
+  displayName: string;
+  email: string;
+  roleCode: string;
+  teamId: string;
 };
 
 const nav: { icon: LucideIcon; label: string }[] = [
@@ -832,6 +856,8 @@ function LoginScreen({
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "include",
+        cache: "no-store",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
@@ -919,6 +945,11 @@ export default function Home() {
   const [ticketDetail, setTicketDetail] = useState<{ticket:Ticket;events:TicketEvent[]}|null>(null);
   const [ticketNote, setTicketNote] = useState("");
   const [ticketStatus, setTicketStatus] = useState("待處理");
+  const [supportTeams, setSupportTeams] = useState<SupportTeam[]>([]);
+  const [supportMembers, setSupportMembers] = useState<SupportMember[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [updatingTicket, setUpdatingTicket] = useState(false);
   const [surveyOpen, setSurveyOpen] = useState(false);
   const [submittingRating, setSubmittingRating] = useState(false);
@@ -930,7 +961,25 @@ export default function Home() {
     comment: "",
   });
   const count = issue.length;
-  const aiResult = useMemo(() => ({ category: "網路連線", priority: issue.includes("斷線") ? "高" : "中", team: "網路維運組" }), [issue]);
+  const aiResult = useMemo(() => {
+    const text = issue.toLowerCase();
+    if (/oracle|mysql|sql server|資料庫|db client/.test(text)) {
+      return { category: "軟體安裝", priority: "中", team: "資料庫管理組", teamId: "team-database" };
+    }
+    if (/病毒|釣魚|wazuh|edr|資安|異常登入/.test(text)) {
+      return { category: "資訊安全", priority: "高", team: "資安管理組", teamId: "team-security" };
+    }
+    if (/erp|應用系統|程式錯誤/.test(text)) {
+      return { category: "應用系統", priority: "中", team: "ERP／應用系統組", teamId: "team-application" };
+    }
+    if (/印表機|筆電|電腦|螢幕|鍵盤|軟體安裝/.test(text)) {
+      return { category: "電腦與周邊設備", priority: "中", team: "電腦與設備維護組", teamId: "team-endpoint" };
+    }
+    if (/outlook|microsoft 365|伺服器|windows|帳號/.test(text)) {
+      return { category: "系統與帳號", priority: "中", team: "系統維運組", teamId: "team-system" };
+    }
+    return { category: "網路連線", priority: issue.includes("斷線") ? "高" : "中", team: "網路維運組", teamId: "team-network" };
+  }, [issue]);
   function requesterToken() {
     const key = "mis-ticket-requester-id";
     let value = window.localStorage.getItem(key);
@@ -940,12 +989,52 @@ export default function Home() {
     }
     return value;
   }
+  function flash(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2400);
+  }
+
+  async function loadSupportTeams() {
+    try {
+      const response = await fetch("/api/support-teams", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const result = await response.json() as { teams?: SupportTeam[]; message?: string };
+      if (!response.ok) throw new Error(result.message || "維運團隊讀取失敗");
+      setSupportTeams(result.teams || []);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "維運團隊讀取失敗");
+    }
+  }
+
+  async function loadSupportMembers(teamId: string) {
+    setSupportMembers([]);
+    if (!teamId) return;
+    setLoadingMembers(true);
+    try {
+      const response = await fetch(`/api/support-teams/${teamId}/members`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const result = await response.json() as { members?: SupportMember[]; message?: string };
+      if (!response.ok) throw new Error(result.message || "處理人員讀取失敗");
+      setSupportMembers(result.members || []);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "處理人員讀取失敗");
+    } finally {
+      setLoadingMembers(false);
+    }
+  }
+
   async function loadTickets() {
     setTicketsLoading(true);
     try {
       const response = await fetch("/api/tickets", {
-        headers: { "x-requester-token": requesterToken() },
+        method: "GET",
+        credentials: "include",
         cache: "no-store",
+        headers: { Accept: "application/json" },
       });
       const result = await response.json() as { tickets?: Ticket[]; message?: string };
       if (!response.ok) throw new Error(result.message || "工單查詢失敗");
@@ -958,7 +1047,10 @@ export default function Home() {
   }
   useEffect(() => {
     let activeRequest = true;
-    fetch("/api/session", { cache: "no-store" })
+    fetch("/api/session", {
+      credentials: "include",
+      cache: "no-store",
+    })
       .then(async (response) => {
         const result = (await response.json()) as {
           user?: SessionUser;
@@ -988,30 +1080,48 @@ export default function Home() {
     return () => { activeRequest = false; };
   }, []);
   useEffect(() => {
-    if (!authenticated) return;
-    const timer = window.setTimeout(() => void loadTickets(), 0);
+    if (!authenticated || !session?.id) return;
+
+    const timer = window.setTimeout(() => {
+      void loadTickets();
+      void loadSupportTeams();
+    }, 0);
+
     return () => window.clearTimeout(timer);
-    // loadTickets intentionally runs only when the authenticated session changes.
+    // 角色切換時必須依新的 Session 重新載入工單與派工主檔。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated]);
+  }, [authenticated, session?.id]);
 
   function diagnose() {
     if (!issue.trim()) return flash("請先輸入問題描述");
     setDiagnosis(true);
   }
-  function flash(message:string) { setToast(message); window.setTimeout(() => setToast(""), 2400); }
+
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    }).catch(() => {});
+
     setProfile(false);
+    setNotice(false);
+    setTicketDetail(null);
+    setSupportMembers([]);
+    setSelectedTeamId("");
+    setSelectedUserId("");
     setSession(null);
-    setAuthenticated(false);
     setTickets([]);
+    setAuthenticated(false);
+    setActive("營運總覽");
   }
   async function postTicket(values: Record<string, unknown>) {
     const response = await fetch("/api/tickets", {
       method: "POST",
+      credentials: "include",
+      cache: "no-store",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requesterToken: requesterToken(), ...values }),
+      body: JSON.stringify(values),
     });
     const text = await response.text();
     let result: { ticket?: Ticket; message?: string } = {};
@@ -1040,6 +1150,8 @@ export default function Home() {
         location,
         assetTag,
         assignedTeam: "系統維運組",
+        assignedTeamId: "team-system",
+        aiSuggestedTeamId: "team-system",
       });
       setNoticeCount(x => x + 1);
       flash(result.message || "Email 工單已建立");
@@ -1073,6 +1185,8 @@ export default function Home() {
         location,
         assetTag,
         assignedTeam: aiResult.team,
+        assignedTeamId: aiResult.teamId,
+        aiSuggestedTeamId: aiResult.teamId,
       });
       setDiagnosis(false);
       setIssue("");
@@ -1088,14 +1202,20 @@ export default function Home() {
   async function openTicket(ticket: Ticket) {
     try {
       const response = await fetch(`/api/tickets/${ticket.id}`, {
-        headers: { "x-requester-token": requesterToken() },
+        credentials: "include",
         cache: "no-store",
+        headers: { Accept: "application/json" },
       });
       const result = await response.json() as { ticket?: Ticket; events?: TicketEvent[]; message?: string };
       if (!response.ok || !result.ticket) throw new Error(result.message || "工單明細讀取失敗");
       setTicketStatus(result.ticket.status);
       setTicketNote("");
+      setSelectedTeamId(result.ticket.assignedTeamId || result.ticket.aiSuggestedTeamId || "");
+      setSelectedUserId(result.ticket.assignedUserId || "");
       setTicketDetail({ ticket: result.ticket, events: result.events || [] });
+      if (result.ticket.assignedTeamId || result.ticket.aiSuggestedTeamId) {
+        await loadSupportMembers(result.ticket.assignedTeamId || result.ticket.aiSuggestedTeamId || "");
+      }
     } catch (error) {
       flash(error instanceof Error ? error.message : "工單明細讀取失敗");
     }
@@ -1106,12 +1226,14 @@ export default function Home() {
     try {
       const response = await fetch(`/api/tickets/${ticketDetail.ticket.id}`, {
         method: "PATCH",
+        credentials: "include",
+        cache: "no-store",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          requesterToken: requesterToken(),
           status: ticketStatus,
           note: ticketNote,
-          actorName: requester,
+          assignedTeamId: selectedTeamId,
+          assignedUserId: selectedUserId,
         }),
       });
       const result = await response.json() as { message?: string };
@@ -1197,9 +1319,20 @@ export default function Home() {
     session?.roleCode === "admin" ||
     session?.permissions.includes(permissionForNav[item.label]),
   );
+  const displayNav = visibleNav.map((item) => ({
+    ...item,
+    displayLabel:
+      item.label === "我的工單" &&
+      (session?.roleCode === "admin" || session?.roleCode === "operator")
+        ? "工單管理"
+        : item.label,
+  }));
   const canUpdateTickets =
     session?.roleCode === "admin" ||
     session?.permissions.includes("tickets.update");
+  const canAssignTickets =
+    session?.roleCode === "admin" ||
+    session?.permissions.includes("tickets.assign");
   const canWriteAssets =
     session?.roleCode === "admin" ||
     session?.permissions.includes("assets.write");
@@ -1219,12 +1352,21 @@ export default function Home() {
 
   if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span></main>;
   if (!authenticated) return <LoginScreen authIssue={authIssue} onAuthenticated={(user) => {
+    setTickets([]);
+    setTicketDetail(null);
+    setSupportMembers([]);
+    setSelectedTeamId("");
+    setSelectedUserId("");
     setSession(user);
     setRequester(user.displayName);
     setRequesterEmail(user.email);
     setDepartment(user.department || "未設定");
     setAuthenticated(true);
-    setActive("營運總覽");
+    setActive(
+      user.roleCode === "operator" || user.roleCode === "admin"
+        ? "我的工單"
+        : "營運總覽",
+    );
   }} />;
 
   return (
@@ -1234,7 +1376,7 @@ export default function Home() {
           <span className="sidebar-logo" aria-hidden="true"><Network /></span>
           <div><strong>MIS 智慧營運中心</strong><small>AI · ITSM · SECURITY</small></div>
         </div>
-        <nav>{visibleNav.map(({ icon: Icon, label }) => <button key={label} className={active === label ? "active" : ""} onClick={() => setActive(label)} aria-current={active === label ? "page" : undefined}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{label}</span></button>)}</nav>
+        <nav>{displayNav.map(({ icon: Icon, label, displayLabel }) => <button key={label} className={active === label ? "active" : ""} onClick={() => setActive(label)} aria-current={active === label ? "page" : undefined}><span className="nav-icon" aria-hidden="true"><Icon /></span><span className="nav-label">{displayLabel}</span></button>)}</nav>
         <div className="sidebar-foot"><span className="status-line"><i className="online-dot" />系統連線正常</span><small>所有核心服務運作中</small></div>
       </aside>
 
@@ -1285,9 +1427,25 @@ export default function Home() {
         {detail && <div className="modal-backdrop" onMouseDown={()=>setDetail(null)}><div className="modal card detail-modal" onMouseDown={e=>e.stopPropagation()}><span className="eyebrow">DETAIL & ACTION</span><h3>{detail.title}</h3><p>{detail.body}</p><label className="action-note">處理備註<textarea placeholder="輸入本次測試或處置結果"/></label><div className="detail-actions"><button className="secondary" onClick={()=>setDetail(null)}>關閉</button><button className="secondary" onClick={()=>{setDetail(null);flash(`${detail.title} 已轉派給第二線維運`)}}>轉派處理</button><button className="primary" onClick={()=>{setDetail(null);flash(`${detail.title} 已完成測試並寫入操作紀錄`)}}>完成測試</button></div></div></div>}
         {ticketDetail && <div className="modal-backdrop" onMouseDown={()=>setTicketDetail(null)}><div className="modal card ticket-detail-modal" onMouseDown={e=>e.stopPropagation()}>
           <div className="ticket-detail-head"><div><span className="eyebrow">TICKET TRACKING</span><h3>{ticketDetail.ticket.ticketNumber}</h3><p>{ticketDetail.ticket.title}</p></div><span className={`priority p-${ticketDetail.ticket.priority}`}>{ticketDetail.ticket.priority}優先</span></div>
-          <dl className="ticket-facts"><div><dt>申請人</dt><dd>{ticketDetail.ticket.requesterName}／{ticketDetail.ticket.department}</dd></div><div><dt>聯絡信箱</dt><dd>{ticketDetail.ticket.requesterEmail}</dd></div><div><dt>類別</dt><dd>{ticketDetail.ticket.category}</dd></div><div><dt>指派對象</dt><dd>{ticketDetail.ticket.assignedTeam}</dd></div><div><dt>地點</dt><dd>{ticketDetail.ticket.location || "未填寫"}</dd></div><div><dt>設備編號</dt><dd>{ticketDetail.ticket.assetTag || "未填寫"}</dd></div></dl>
+          <dl className="ticket-facts"><div><dt>申請人</dt><dd>{ticketDetail.ticket.requesterName}／{ticketDetail.ticket.department}</dd></div><div><dt>聯絡信箱</dt><dd>{ticketDetail.ticket.requesterEmail}</dd></div><div><dt>類別</dt><dd>{ticketDetail.ticket.category}</dd></div><div><dt>指派團隊</dt><dd>{ticketDetail.ticket.assignedTeam}</dd></div><div><dt>處理人員</dt><dd>{ticketDetail.ticket.assignedUserName || "由團隊接單"}</dd></div><div><dt>地點</dt><dd>{ticketDetail.ticket.location || "未填寫"}</dd></div><div><dt>設備編號</dt><dd>{ticketDetail.ticket.assetTag || "未填寫"}</dd></div></dl>
           <div className="ticket-description"><b>問題描述</b><p>{ticketDetail.ticket.description}</p></div>
-          {canUpdateTickets ? <div className="ticket-update"><label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label><label>處理備註<textarea value={ticketNote} onChange={e=>setTicketNote(e.target.value)} placeholder="記錄處理進度、測試結果或解決方式"/></label></div> : <div className="account-auth-note"><ShieldCheck size={18}/><span><b>此角色為工單唯讀權限</b><small>一般使用者可以查看自己的工單與處理歷程，但不可變更工單狀態。</small></span></div>}
+          {canUpdateTickets ? <div className="ticket-update assignment-editor">
+            <label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label>
+            <label>指派團隊
+              <select value={selectedTeamId} disabled={!canAssignTickets} onChange={e=>{ const teamId=e.target.value; setSelectedTeamId(teamId); setSelectedUserId(""); void loadSupportMembers(teamId); }}>
+                <option value="">請選擇維運團隊</option>
+                {supportTeams.map(team=><option key={team.id} value={team.id}>{team.teamName}</option>)}
+              </select>
+              {ticketDetail.ticket.aiSuggestedTeamName && <small className="ai-team-hint">AI 建議：{ticketDetail.ticket.aiSuggestedTeamName}（僅供預選，可人工修改）</small>}
+            </label>
+            <label>處理人員
+              <select value={selectedUserId} disabled={!canAssignTickets || !selectedTeamId || loadingMembers} onChange={e=>setSelectedUserId(e.target.value)}>
+                <option value="">{loadingMembers ? "正在讀取…" : "暫不指定，由團隊接單"}</option>
+                {supportMembers.map(member=><option key={member.id} value={member.id}>{member.displayName}－{member.email}</option>)}
+              </select>
+            </label>
+            <label className="assignment-note">處理備註<textarea value={ticketNote} onChange={e=>setTicketNote(e.target.value)} placeholder="記錄處理進度、轉派原因、測試結果或解決方式"/></label>
+          </div> : <div className="account-auth-note"><ShieldCheck size={18}/><span><b>此角色為工單唯讀權限</b><small>一般使用者只能查看指派團隊、處理人員與處理歷程，不可變更狀態或轉派。</small></span></div>}
           {canSubmitOwnSurvey &&
             ["已解決", "已結案", "已關閉"].includes(ticketDetail.ticket.status) && (
               <div className={`ticket-rating-card ${ticketDetail.ticket.surveySubmitted ? "completed" : ""}`}>
@@ -1300,7 +1458,7 @@ export default function Home() {
                 {ticketDetail.ticket.surveySubmitted && <span className="ticket-rating-completed">✓ 已完成</span>}
               </div>
             )}
-          <div className="ticket-timeline"><h4>處理歷程</h4>{ticketDetail.events.map((event,index)=><article key={`${event.createdAt}-${index}`}><i/><div><b>{event.toStatus ? `${event.fromStatus} → ${event.toStatus}` : "工單已建立"}</b><p>{event.note}</p><small>{event.actorName}・{new Date(event.createdAt).toLocaleString("zh-TW")}</small></div></article>)}</div>
+          <div className="ticket-timeline"><h4>處理歷程</h4>{ticketDetail.events.map((event,index)=><article key={`${event.createdAt}-${index}`}><i/><div><b>{event.eventType === "reassigned" ? "工單已轉派" : event.toStatus ? `${event.fromStatus} → ${event.toStatus}` : "工單已建立"}</b><p>{event.note}</p><small>{event.actorName}・{new Date(event.createdAt).toLocaleString("zh-TW")}</small></div></article>)}</div>
           <div className="detail-actions"><button className="secondary" onClick={()=>setTicketDetail(null)}>關閉</button>{canUpdateTickets && <button className="primary" disabled={updatingTicket} onClick={()=>void updateTicket()}>{updatingTicket ? "正在儲存…" : "更新工單與歷程"}</button>}</div>
         </div></div>}
         {surveyOpen && ticketDetail && canSubmitOwnSurvey && <div className="modal-backdrop" onMouseDown={() => !submittingRating && setSurveyOpen(false)}>

@@ -281,3 +281,12 @@
     justify-content:center;
   }
 }
+
+/* 維運團隊與處理人員派工 */
+.ticket-detail-modal>.assignment-editor{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+.assignment-editor .assignment-note{grid-column:1/-1}
+.assignment-editor select:disabled{background:#f2f4f7;color:#667085;cursor:not-allowed}
+.ai-team-hint{display:block;margin-top:2px;color:#175cd3;font-size:11px;font-weight:600;line-height:1.45}
+.checkbox-label{display:flex!important;align-items:center;gap:8px}
+.checkbox-label input{width:auto!important}
+@media(max-width:760px){.ticket-detail-modal>.assignment-editor{grid-template-columns:1fr}.assignment-editor .assignment-note{grid-column:auto}}

@@ -28,6 +28,28 @@ export const roles = sqliteTable(
   ],
 );
 
+
+
+export const supportTeams = sqliteTable(
+  "support_teams",
+  {
+    id: text().primaryKey().notNull(),
+    teamCode: text("team_code").notNull(),
+    teamName: text("team_name").notNull(),
+    description: text(),
+    displayOrder: integer("display_order").default(0).notNull(),
+    isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdBy: text("created_by"),
+    updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    uniqueIndex("support_teams_code_uq").on(table.teamCode),
+    index("support_teams_active_order_idx").on(table.isActive, table.displayOrder),
+  ],
+);
+
 export const appUsers = sqliteTable(
   "app_users",
   {
@@ -36,6 +58,8 @@ export const appUsers = sqliteTable(
     email: text().notNull(),
     displayName: text("display_name").notNull(),
     department: text(),
+    teamId: text("team_id").references(() => supportTeams.id),
+    isAssignable: integer("is_assignable", { mode: "boolean" }).default(false).notNull(),
     roleId: text("role_id")
       .notNull()
       .references(() => roles.id),
@@ -229,6 +253,11 @@ export const tickets = sqliteTable(
     location: text(),
     assetTag: text("asset_tag"),
     assignedTeam: text("assigned_team").notNull(),
+    assignedTeamId: text("assigned_team_id").references(() => supportTeams.id),
+    assignedUserId: text("assigned_user_id").references(() => appUsers.id),
+    aiSuggestedTeamId: text("ai_suggested_team_id").references(() => supportTeams.id),
+    assignmentSource: text("assignment_source"),
+    assignedAt: text("assigned_at"),
     status: text().default("待處理").notNull(),
     createdAt: text("created_at")
       .default(sql`CURRENT_TIMESTAMP`)

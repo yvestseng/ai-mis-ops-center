@@ -36,10 +36,15 @@ const entityPermission: Record<
 async function list(entity: Entity, db: D1Database) {
   const sql: Record<Entity, string> = {
     users: `SELECT u.id, u.username, u.email, u.display_name AS displayName,
-                   u.department, u.status, u.last_login_at AS lastLoginAt,
+                   u.department, u.team_id AS teamId,
+                   COALESCE(st.team_name, '') AS teamName,
+                   u.is_assignable AS isAssignable,
+                   u.status, u.last_login_at AS lastLoginAt,
                    CASE WHEN u.password_hash IS NULL THEN 0 ELSE 1 END AS hasPassword,
                    u.role_id AS roleId, r.name AS roleName, r.code AS roleCode
-            FROM app_users u JOIN roles r ON r.id = u.role_id
+            FROM app_users u
+            JOIN roles r ON r.id = u.role_id
+            LEFT JOIN support_teams st ON st.id = u.team_id
             ORDER BY u.status, u.display_name`,
     roles: `SELECT id, code, name, permissions, is_system AS isSystem,
                    created_at AS createdAt, updated_at AS updatedAt
@@ -74,6 +79,9 @@ async function createUser(
   const displayName = clean(data.displayName, 80);
   const department = clean(data.department, 80) || null;
   const roleId = clean(data.roleId, 80) || "role-user";
+  const teamId = clean(data.teamId, 80) || null;
+  const isAssignable =
+    roleId === "role-user" ? 0 : data.isAssignable === true || data.isAssignable === 1 ? 1 : 0;
   if (
     !/^[a-z0-9][a-z0-9._-]{2,79}$/.test(username) ||
     !email.includes("@") ||
@@ -94,10 +102,10 @@ async function createUser(
     await db
       .prepare(
         `INSERT INTO app_users
-          (id, username, email, display_name, department, role_id,
+          (id, username, email, display_name, department, team_id, is_assignable, role_id,
            password_hash, password_salt, password_changed_at,
            status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       )
       .bind(
         id,
@@ -105,6 +113,8 @@ async function createUser(
         email,
         displayName,
         department,
+        teamId,
+        isAssignable,
         roleId,
         passwordRecord.passwordHash,
         passwordRecord.passwordSalt,
@@ -230,6 +240,14 @@ async function update(
     }
     const newPassword = clean(data.newPassword, 200);
     const newUsername = clean(data.username, 80).toLowerCase();
+    const requestedRoleId = clean(data.roleId, 80);
+    const requestedTeamId = data.teamId === undefined ? "__KEEP__" : clean(data.teamId, 80);
+    const requestedAssignable =
+      data.isAssignable === undefined
+        ? -1
+        : data.isAssignable === true || data.isAssignable === 1
+          ? 1
+          : 0;
     if (
       newPassword &&
       (newPassword.length < 8 ||
@@ -252,7 +270,12 @@ async function update(
             `UPDATE app_users
              SET username = COALESCE(NULLIF(?, ''), username),
                  display_name = COALESCE(NULLIF(?, ''), display_name),
-                 department = ?, role_id = COALESCE(NULLIF(?, ''), role_id),
+                 department = ?,
+                 team_id = CASE WHEN ? = '__KEEP__' THEN team_id ELSE NULLIF(?, '') END,
+                 is_assignable = CASE
+                   WHEN COALESCE(NULLIF(?, ''), role_id) = 'role-user' THEN 0
+                   WHEN ? = -1 THEN is_assignable ELSE ? END,
+                 role_id = COALESCE(NULLIF(?, ''), role_id),
                  status = COALESCE(NULLIF(?, ''), status),
                  password_hash = ?, password_salt = ?,
                  password_changed_at = ?, updated_at = ?
@@ -262,7 +285,12 @@ async function update(
             newUsername,
             clean(data.displayName, 80),
             clean(data.department, 80) || null,
-            clean(data.roleId, 80),
+            requestedTeamId,
+            requestedTeamId,
+            requestedRoleId,
+            requestedAssignable,
+            requestedAssignable,
+            requestedRoleId,
             clean(data.status, 20),
             passwordRecord.passwordHash,
             passwordRecord.passwordSalt,
@@ -277,14 +305,24 @@ async function update(
         .prepare(
           `UPDATE app_users
            SET display_name = COALESCE(NULLIF(?, ''), display_name),
-               department = ?, role_id = COALESCE(NULLIF(?, ''), role_id),
+               department = ?,
+               team_id = CASE WHEN ? = '__KEEP__' THEN team_id ELSE NULLIF(?, '') END,
+               is_assignable = CASE
+                 WHEN COALESCE(NULLIF(?, ''), role_id) = 'role-user' THEN 0
+                 WHEN ? = -1 THEN is_assignable ELSE ? END,
+               role_id = COALESCE(NULLIF(?, ''), role_id),
                status = COALESCE(NULLIF(?, ''), status), updated_at = ?
            WHERE id = ?`,
         )
         .bind(
           clean(data.displayName, 80),
           clean(data.department, 80) || null,
-          clean(data.roleId, 80),
+          requestedTeamId,
+          requestedTeamId,
+          requestedRoleId,
+          requestedAssignable,
+          requestedAssignable,
+          requestedRoleId,
           clean(data.status, 20),
           now,
           id,

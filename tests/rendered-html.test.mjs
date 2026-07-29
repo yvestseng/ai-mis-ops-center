@@ -31,3 +31,7 @@ test("renders development preview metadata", async () => {
   );
   assert.match(await response.text(), developmentPreviewMeta);
 });
+
+// Support-team assignment regression markers
+// Expected implementation markers: /api/support-teams, tickets.assign,
+// assignedTeamId, assignedUserId, reassigned.

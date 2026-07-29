@@ -5,6 +5,7 @@ import { handleSurveyRequest } from "./surveys";
 import { handleTicketRequest } from "./tickets";
 import { handleAdminRequest, handleSessionRequest } from "./admin";
 import { handleDashboardRequest } from "./dashboard";
+import { handleSupportTeamRequest } from "./support-teams";
 import { handleLoginRequest, handleLogoutRequest } from "./auth";
 
 interface Env {
@@ -45,6 +46,17 @@ const worker = {
     const ticketMatch = url.pathname.match(/^\/api\/tickets\/([^/]+)$/);
     if (ticketMatch) {
       return handleTicketRequest(request, env.DB, ticketMatch[1]);
+    }
+
+
+
+    if (url.pathname === "/api/support-teams") {
+      return handleSupportTeamRequest(request, env.DB);
+    }
+
+    const supportTeamMatch = url.pathname.match(/^\/api\/support-teams\/([^/]+)\/members$/);
+    if (supportTeamMatch) {
+      return handleSupportTeamRequest(request, env.DB, supportTeamMatch[1]);
     }
 
     if (url.pathname === "/api/session") {

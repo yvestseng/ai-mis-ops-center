@@ -4,6 +4,7 @@ export type Permission =
   | "tickets.read.own"
   | "tickets.read.all"
   | "tickets.update"
+  | "tickets.assign"
   | "assets.read"
   | "assets.write"
   | "services.read"
@@ -26,6 +27,8 @@ export type Identity = {
   roleCode: string;
   roleName: string;
   permissions: Permission[];
+  teamId: string | null;
+  isAssignable: boolean;
 };
 
 type PasswordRecord = {
@@ -88,14 +91,14 @@ const systemRoles = [
     code: "admin",
     name: "系統管理人員",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all","surveys.followup.manage","rbac.manage","audit.read"]',
+      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","tickets.assign","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all","surveys.followup.manage","rbac.manage","audit.read"]',
   },
   {
     id: "role-operator",
     code: "operator",
     name: "MIS 維運人員",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all"]',
+      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","tickets.assign","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all"]',
   },
   {
     id: "role-user",
@@ -217,6 +220,8 @@ async function ensureAuthSchema(db: D1Database) {
         email text NOT NULL,
         display_name text NOT NULL,
         department text,
+        team_id text,
+        is_assignable integer DEFAULT 0 NOT NULL,
         role_id text NOT NULL,
         password_hash text,
         password_salt text,
@@ -257,6 +262,8 @@ async function ensureAuthSchema(db: D1Database) {
     ["username", "ALTER TABLE app_users ADD username text"],
     ["password_hash", "ALTER TABLE app_users ADD password_hash text"],
     ["password_salt", "ALTER TABLE app_users ADD password_salt text"],
+    ["team_id", "ALTER TABLE app_users ADD team_id text"],
+    ["is_assignable", "ALTER TABLE app_users ADD is_assignable integer DEFAULT 0 NOT NULL"],
     [
       "password_changed_at",
       "ALTER TABLE app_users ADD password_changed_at text",
@@ -337,10 +344,10 @@ async function ensureDemoAccounts(db: D1Database) {
       db
         .prepare(
           `INSERT INTO app_users
-            (id, username, email, display_name, department, role_id,
+            (id, username, email, display_name, department, team_id, is_assignable, role_id,
              password_hash, password_salt, password_changed_at, status,
              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              username = excluded.username,
              email = excluded.email,
@@ -359,6 +366,8 @@ async function ensureDemoAccounts(db: D1Database) {
           account.email,
           account.displayName,
           account.department,
+          account.roleId === "role-user" ? null : "team-service-desk",
+          account.roleId === "role-user" ? 0 : 1,
           account.roleId,
           account.passwordHash,
           account.passwordSalt,
@@ -381,6 +390,8 @@ function toIdentity(row: Record<string, string | null>): Identity {
     email: String(row.email),
     displayName: String(row.displayName),
     department: row.department ? String(row.department) : null,
+    teamId: row.teamId ? String(row.teamId) : null,
+    isAssignable: Number(row.isAssignable || 0) === 1,
     roleId: String(row.roleId),
     roleCode: String(row.roleCode),
     roleName: String(row.roleName),
@@ -399,7 +410,7 @@ export async function getIdentity(
   const row = await db
     .prepare(
       `SELECT u.id, u.username, u.email, u.display_name AS displayName,
-              u.department, u.role_id AS roleId,
+              u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.role_id AS roleId,
               r.code AS roleCode, r.name AS roleName, r.permissions
        FROM auth_sessions s
        JOIN app_users u ON u.id = s.user_id
@@ -489,7 +500,7 @@ async function handleLoginCore(request: Request, db: D1Database) {
     row = await db
       .prepare(
         `SELECT u.id, u.username, u.email, u.display_name AS displayName,
-                u.department, u.role_id AS roleId, u.password_hash AS passwordHash,
+                u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.role_id AS roleId, u.password_hash AS passwordHash,
                 u.password_salt AS passwordSalt,
                 r.code AS roleCode, r.name AS roleName, r.permissions
          FROM app_users u JOIN roles r ON r.id = u.role_id
