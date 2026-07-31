@@ -1013,7 +1013,7 @@ function LoginScreen({
 
   return <main className="login-page">
     <section className="login-intro">
-      <div className="login-brand"><span className="brandmark">A</span><span><strong>文化大學學分班 AI 資訊報修</strong><small>MIS 維運／資安監控中心</small></span></div>
+      <div className="login-brand"><span className="brandmark">A</span><span><strong>AI 資訊報修</strong><small>MIS 維運／資安監控中心</small></span></div>
       <div className="login-message"><span className="login-kicker">ENTERPRISE IT OPERATIONS</span><h1>讓資訊服務更快速，<br/>讓資安風險更透明。</h1><p>整合 AI 報修、工單治理、設備服務與資安監控，協助 MIS 團隊集中掌握企業資訊營運狀態。</p>
         <div className="login-features"><span>✦ AI 智慧分類與派工</span><span>▣ ITSM 與 SLA 管理</span><span>♢ 資安事件即時監控</span></div>
       </div>
