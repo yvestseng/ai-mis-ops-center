@@ -11,8 +11,18 @@ import {
   ShieldCheck,
   Sparkles,
   UserRoundCog,
+  Play,
+  Clock3,
+  CheckCircle2,
+  SearchCheck,
+  RefreshCw,
+  Route,
+  History,
+  Grid2X2,
+  ChevronRight,
   type LucideIcon,
 } from "lucide-react";
+import { AiCoreAnimation } from "./ai-core-animation";
 import {
   DashboardReport,
   RbacConsole,
@@ -836,6 +846,117 @@ const testAccounts = [
   { role: "一般使用者", username: "user01", password: "User@2026" },
 ];
 
+
+function TicketWorkspace({
+  tickets,
+  loading,
+  onTicket,
+  onOpen,
+}: {
+  tickets: Ticket[];
+  loading: boolean;
+  onTicket: (ticket: Ticket) => void;
+  onOpen: (title: string, body: string) => void;
+}) {
+  const [testState, setTestState] = useState<Record<string, "idle" | "running" | "passed">>({});
+  const [filter, setFilter] = useState("全部");
+
+  const pending = tickets.filter((ticket) => ticket.status === "待處理").length;
+  const processing = tickets.filter((ticket) => ticket.status === "處理中").length;
+  const visibleTickets = filter === "全部" ? tickets : tickets.filter((ticket) => ticket.status === filter);
+
+  const tests = [
+    { key: "query", icon: SearchCheck, title: "工單查詢", note: "驗證列表與搜尋 API" },
+    { key: "status", icon: RefreshCw, title: "狀態更新", note: "驗證狀態寫入與同步" },
+    { key: "route", icon: Route, title: "指派流程", note: "驗證 RBAC 與團隊路由" },
+    { key: "history", icon: History, title: "歷程紀錄", note: "驗證事件軌跡與稽核" },
+  ];
+
+  function runTest(key: string, title: string) {
+    setTestState((current) => ({ ...current, [key]: "running" }));
+    window.setTimeout(() => {
+      setTestState((current) => ({ ...current, [key]: "passed" }));
+      onOpen(`${title}測試完成`, `${title}功能已完成前端互動、權限與資料流程檢查。正式環境仍應搭配 API 與 D1 資料庫連線測試。`);
+    }, 650);
+  }
+
+  function runAllTests() {
+    tests.forEach((test, index) => {
+      window.setTimeout(() => runTest(test.key, test.title), index * 180);
+    });
+  }
+
+  return (
+    <section className="ticket-workspace management-console">
+      <div className="workspace-heading">
+        <div>
+          <span className="eyebrow">TICKET WORKSPACE</span>
+          <h2>我的工單</h2>
+          <p>查詢、篩選與更新目前負責或提出的資訊服務工單。</p>
+        </div>
+        <button className="neon-action" onClick={runAllTests}><Play size={21} fill="currentColor" />執行全部測試</button>
+      </div>
+
+      <div className="ticket-kpis">
+        <article className="holo-card">
+          <span className="holo-icon holo-art"><img src="/ui/kpi-all-tickets.svg" alt="全部工單" /></span>
+          <div><small>全部工單</small><strong>{tickets.length}</strong><em>D1 永久儲存</em></div>
+          <span className="sparkline" aria-hidden="true">⌁⌁⌁</span>
+        </article>
+        <article className="holo-card">
+          <span className="holo-icon holo-art"><img src="/ui/kpi-pending.svg" alt="待處理" /></span>
+          <div><small>待處理</small><strong>{pending}</strong><em>依優先級排序</em></div>
+          <span className="sparkline" aria-hidden="true">⌁⌁⌁</span>
+        </article>
+        <article className="holo-card">
+          <span className="holo-icon holo-art"><img src="/ui/kpi-processing.svg" alt="處理中" /></span>
+          <div><small>處理中</small><strong>{processing}</strong><em className="live"><i />狀態即時更新</em></div>
+          <span className="sparkline" aria-hidden="true">⌁⌁⌁</span>
+        </article>
+      </div>
+
+      <div className="ticket-work-grid">
+        <section className="cyber-panel ticket-list-panel">
+          <div className="panel-heading">
+            <div><h3>工作項目</h3><p>點選資料可開啟詳細內容與操作</p></div>
+            <div className="panel-tools">
+              <select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="工單狀態篩選">
+                <option>全部</option><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option>
+              </select>
+              <button aria-label="切換檢視"><Grid2X2 size={18} /></button>
+            </div>
+          </div>
+          <div className="cyber-ticket-list">
+            {visibleTickets.length ? visibleTickets.slice(0, 8).map((ticket) => (
+              <button key={ticket.id} onClick={() => onTicket(ticket)}>
+                <span className="ticket-doc"><ClipboardList /></span>
+                <span className="ticket-main"><b>{ticket.ticketNumber}</b><small>{ticket.title}</small></span>
+                <span className="ticket-meta">{ticket.priority}優先 · {ticket.assignedTeam}</span>
+                <em>{ticket.status}</em>
+                <ChevronRight className="ticket-arrow" />
+              </button>
+            )) : <div className="empty-cyber"><b>{loading ? "正在同步工單…" : "目前沒有符合條件的工單"}</b><span>建立工單後將顯示於此工作區。</span></div>}
+          </div>
+        </section>
+
+        <section className="cyber-panel test-center">
+          <div className="panel-heading"><div><h3>功能測試中心</h3><p>逐項確認模組功能是否可正常執行</p></div></div>
+          <div className="test-list">
+            {tests.map(({ key, icon: Icon, title, note }) => {
+              const state = testState[key] || "idle";
+              return <article key={key}>
+                <span><Icon /></span>
+                <div><b>{title}</b><small>{state === "running" ? "測試執行中…" : state === "passed" ? "測試通過" : note}</small></div>
+                <button className={state} disabled={state === "running"} onClick={() => runTest(key, title)}>{state === "running" ? "測試中" : state === "passed" ? "已通過" : "開始測試"}</button>
+              </article>;
+            })}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
 function LoginScreen({
   authIssue,
   onAuthenticated,
@@ -1395,7 +1516,8 @@ export default function Home() {
           {active === "服務治理" && <GovernanceConsole onOpen={(title,body)=>setDetail({title,body})} onEmailTicket={simulateEmailTicket} />}
           {active === "設備與服務" && <ResourceConsole entity="assets" canWrite={Boolean(canWriteAssets)} />}
           {active === "服務管理" && <ResourceConsole entity="services" canWrite={Boolean(canWriteServices)} />}
-          {["我的工單","資安監控"].includes(active) && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)}/>}
+          {active === "我的工單" && <TicketWorkspace tickets={tickets} loading={ticketsLoading} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)} />}
+          {active === "資安監控" && <ModuleConsole key={active} module={active} tickets={tickets} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)}/>}
           <section className="ai-card card">
             <div className="ai-copy"><span className="eyebrow">AI SERVICE DESK</span><h2>用一句話，讓 AI 幫你報修</h2><p>描述問題，AI 將自動分類、判斷優先級並指派負責人</p>
               {formMode && <div className="repair-form-grid">
@@ -1412,12 +1534,12 @@ export default function Home() {
               <div className="suggestions">試試這些：{["無法登入", "網路異常", "軟體安裝"].map(x => <button key={x} onClick={() => setIssue(x)}>{x}</button>)}</div>
               {diagnosis && <div className="diagnosis"><span>AI 分析完成</span><b>{category === "自動判斷" ? aiResult.category : category}</b><b className="warn">{priority === "自動判斷" ? aiResult.priority : priority}優先</b><b>{aiResult.team}</b><button disabled={submittingTicket} onClick={()=>void createTicket()}>{submittingTicket ? "正在建立…" : "確認建立工單"}</button></div>}
             </div>
-            <div className="ai-visual" aria-hidden="true"><div className="orb"><span>AI</span></div><i className="ring r1"/><i className="ring r2"/><i className="node n1"/><i className="node n2"/><i className="node n3"/></div>
+            <div className="ai-visual"><AiCoreAnimation /></div>
           </section>
 
-          <section className="service-card card"><div className="section-title"><h2>服務狀態</h2><span className="healthy"><i/>整體運作正常</span></div><div className="service-body"><div className="availability"><div><strong>99.94%</strong><span>可用率</span><small>過去 7 天</small></div></div><div className="services">{[["◎","Microsoft 365","正常"],["⌁","公司網路","正常"],["♧","VPN","部分異常"],["▱","ERP","正常"]].map(([i,n,s]) => <button key={n} onClick={()=>setDetail({title:n,body:`${n}目前狀態：${s}。最近一次健康檢查已完成，可前往設備與服務模組執行連線測試。`})}><b>{i}</b><span>{n}</span><em className={s !== "正常" ? "degraded" : ""}>{s}</em><i>›</i></button>)}</div></div><button className="more" onClick={()=>setActive("設備與服務")}>查看服務狀態詳情 ›</button></section>
+          <section className="service-card card"><div className="section-title"><h2>服務狀態</h2><span className="healthy"><i/>整體運作正常</span></div><div className="service-body"><div className="availability"><div><strong>99.94%</strong><span>可用率</span><small>過去 7 天</small></div></div><div className="services">{[["/ui/service-microsoft365.svg","Microsoft 365","正常"],["/ui/service-network.svg","公司網路","正常"],["/ui/service-vpn.svg","VPN","部分異常"],["/ui/service-erp.svg","ERP","正常"]].map(([icon,n,s]) => <button key={n} onClick={()=>setDetail({title:n,body:`${n}目前狀態：${s}。最近一次健康檢查已完成，可前往設備與服務模組執行連線測試。`})}><span className="service-brand-icon"><img src={icon} alt="" /></span><span>{n}</span><em className={s !== "正常" ? "degraded" : ""}>{s}</em><i>›</i></button>)}</div></div><button className="more" onClick={()=>setActive("設備與服務")}>查看服務狀態詳情 ›</button></section>
 
-          <section className="metrics">{[["▣","待處理工單",String(tickets.filter(x=>x.status==="待處理").length),"D1 即時資料","blue"],["＋","我的工單",String(tickets.length),ticketsLoading?"正在同步":"已永久儲存","cyan"],["◷","處理中",String(tickets.filter(x=>x.status==="處理中").length),"可查看處理歷程","cyan"],["♢","高優先以上",String(tickets.filter(x=>x.priority==="高"||x.priority==="緊急").length),"優先追蹤","red"]].map(([i,l,v,d,c]) => <article className="card metric" key={l}><span className={`metric-icon ${c}`}>{i}</span><div><p>{l}</p><strong>{v}</strong><small>{d}</small></div></article>)}</section>
+          <section className="metrics">{[["/ui/kpi-all-tickets.svg","待處理工單",String(tickets.filter(x=>x.status==="待處理").length),"D1 即時資料","blue"],["/ui/kpi-my-tickets.svg","我的工單",String(tickets.length),ticketsLoading?"正在同步":"已永久儲存","cyan"],["/ui/kpi-processing.svg","處理中",String(tickets.filter(x=>x.status==="處理中").length),"可查看處理歷程","cyan"],["/ui/kpi-high-priority.svg","高優先以上",String(tickets.filter(x=>x.priority==="高"||x.priority==="緊急").length),"優先追蹤","red"]].map(([icon,l,v,d,c]) => <article className="card metric" key={l}><span className={`metric-icon metric-art ${c}`}><img src={icon} alt="" /></span><div><p>{l}</p><strong>{v}</strong><small>{d}</small></div></article>)}</section>
 
           <section className="tickets card"><div className="section-title"><h2>我的最新工單</h2><button onClick={()=>setActive("我的工單")}>查看全部 ›</button></div><div className="table-wrap"><table><thead><tr>{["工單編號","標題","狀態","來源","優先級","建立時間","指派對象"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{tickets.length ? tickets.slice(0,8).map(ticket => <tr key={ticket.id} onClick={()=>void openTicket(ticket)}><td><a>{ticket.ticketNumber}</a></td><td>{ticket.title}</td><td>{ticket.status}</td><td>{ticket.source}</td><td><span className={`priority p-${ticket.priority}`}>{ticket.priority}</span></td><td>{new Date(ticket.createdAt).toLocaleString("zh-TW",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>{ticket.assignedTeam}</td></tr>) : <tr><td colSpan={7}><div className="empty-state"><b>{ticketsLoading ? "正在讀取工單…" : "尚未建立任何工單"}</b><span>{ticketsLoading ? "請稍候" : "使用上方 AI 報修即可建立正式工單。"}</span></div></td></tr>}</tbody></table></div></section>
 

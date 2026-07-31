@@ -89,3 +89,12 @@ drizzle-recovered/
 drizzle/*.sql.backup_*
 drizzle/*.sql.before-seed-fix_*
 wrangler.local.jsonc.backup_*
+
+# Local project packages
+*.zip
+README-DESIGN.txt
+README-ICON-UPDATE.txt
+README_版面修改說明.md
+docs/UI_reference.png
+README_*版面*.md
+README_*.md
