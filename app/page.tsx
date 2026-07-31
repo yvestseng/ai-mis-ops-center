@@ -901,17 +901,17 @@ function TicketWorkspace({
         <article className="holo-card">
           <span className="holo-icon holo-art"><img src="/ui/kpi-all-tickets.svg" alt="全部工單" /></span>
           <div><small>全部工單</small><strong>{tickets.length}</strong><em>D1 永久儲存</em></div>
-          <span className="sparkline" aria-hidden="true">⌁⌁⌁</span>
+          <span className="kpi-accent kpi-accent-circuit" aria-hidden="true"><i /><i /><i /></span>
         </article>
         <article className="holo-card">
           <span className="holo-icon holo-art"><img src="/ui/kpi-pending.svg" alt="待處理" /></span>
           <div><small>待處理</small><strong>{pending}</strong><em>依優先級排序</em></div>
-          <span className="sparkline" aria-hidden="true">⌁⌁⌁</span>
+          <span className="kpi-accent kpi-accent-radar" aria-hidden="true"><i /></span>
         </article>
         <article className="holo-card">
           <span className="holo-icon holo-art"><img src="/ui/kpi-processing.svg" alt="處理中" /></span>
           <div><small>處理中</small><strong>{processing}</strong><em className="live"><i />狀態即時更新</em></div>
-          <span className="sparkline" aria-hidden="true">⌁⌁⌁</span>
+          <span className="kpi-accent kpi-accent-grid" aria-hidden="true"><i /><i /><i /><i /></span>
         </article>
       </div>
 
