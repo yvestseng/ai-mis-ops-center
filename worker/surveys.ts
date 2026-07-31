@@ -1,6 +1,5 @@
 import {
   requireIdentity,
-  requirePermission,
   type Identity,
 } from "./auth";
 
@@ -122,6 +121,36 @@ async function createSurvey(request: Request, db: D1Database, identity: Identity
 
   const effectiveRespondentToken =
     respondentToken || identity.email;
+
+  const respondentHash = await sha256(
+    payload.surveyType === "system_usage"
+      ? `system_usage:${identity.email.toLowerCase()}`
+      : `${identity.email.toLowerCase()}:${textValue(payload.ticketReference, 40).toUpperCase() || effectiveRespondentToken}`,
+  );
+
+  if (payload.surveyType === "system_usage") {
+    const existing = await db
+      .prepare(
+        `SELECT id, submitted_at AS submittedAt
+         FROM survey_responses
+         WHERE survey_type = 'system_usage'
+           AND respondent_hash = ?
+         LIMIT 1`,
+      )
+      .bind(respondentHash)
+      .first<{ id: string; submittedAt: string }>();
+
+    if (existing) {
+      return json(
+        {
+          error: "DUPLICATE_SUBMISSION",
+          message: "您已完成系統使用問卷，送出後不可修改或重複填寫。",
+          submittedAt: existing.submittedAt,
+        },
+        409,
+      );
+    }
+  }
 
   const answerRows: Array<[string, string, number | null]> = [];
   let overallScore = 0;
@@ -287,12 +316,6 @@ async function createSurvey(request: Request, db: D1Database, identity: Identity
   const submittedAt = new Date().toISOString();
   const submissionDate = submittedAt.slice(0, 10);
 
-  const respondentHash = await sha256(
-    payload.surveyType === "it_service" && ticketReference
-      ? `${identity.email}:${ticketReference}`
-      : `${identity.email}:${effectiveRespondentToken}`,
-  );
-
   const statements = [
     db
       .prepare(
@@ -362,7 +385,7 @@ async function createSurvey(request: Request, db: D1Database, identity: Identity
           error: "DUPLICATE_SUBMISSION",
           message:
             payload.surveyType === "system_usage"
-              ? "今天已完成系統使用問卷，感謝您的回饋。"
+              ? "您已完成系統使用問卷，送出後不可修改或重複填寫。"
               : "此工單已完成服務調查，請勿重複送出。",
         },
         409,
@@ -393,7 +416,7 @@ async function createSurvey(request: Request, db: D1Database, identity: Identity
   );
 }
 
-async function getSurveyStats(db: D1Database) {
+async function getSurveyStats(db: D1Database, identity: Identity) {
   const [summaryResult, followupResult] = await Promise.all([
     db
       .prepare(
@@ -436,11 +459,35 @@ async function getSurveyStats(db: D1Database) {
         : Number(row.average_nps),
   }));
 
+  const respondentHash = await sha256(
+    `system_usage:${identity.email.toLowerCase()}`,
+  );
+  const ownSystemUsage = await db
+    .prepare(
+      `SELECT submitted_at AS submittedAt
+       FROM survey_responses
+       WHERE survey_type = 'system_usage'
+         AND respondent_hash = ?
+       LIMIT 1`,
+    )
+    .bind(respondentHash)
+    .first<{ submittedAt: string }>();
+
+  const canReadAll =
+    identity.roleCode === "admin" ||
+    identity.permissions.includes("surveys.read");
+
   return json({
-    summaries,
-    pendingFollowups: Number(
-      followupResult?.pending_count ?? 0,
-    ),
+    summaries: canReadAll ? summaries : [],
+    pendingFollowups: canReadAll
+      ? Number(followupResult?.pending_count ?? 0)
+      : 0,
+    ownSubmission: {
+      system_usage: {
+        submitted: Boolean(ownSystemUsage),
+        submittedAt: ownSystemUsage?.submittedAt ?? null,
+      },
+    },
   });
 }
 
@@ -457,10 +504,10 @@ export function handleSurveyRequest(
     }
 
     if (request.method === "GET") {
-      const auth = await requirePermission(request, db, "surveys.read");
+      const auth = await requireIdentity(request, db);
       if (!auth.identity) return auth.response!;
       if (auth.response) return auth.response;
-      return getSurveyStats(db);
+      return getSurveyStats(db, auth.identity);
     }
 
     return json(

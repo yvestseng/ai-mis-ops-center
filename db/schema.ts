@@ -172,12 +172,10 @@ export const surveyResponses = sqliteTable(
       "survey_responses_ticket_reference_uq",
     ).on(table.ticketReference),
     uniqueIndex(
-      "survey_responses_type_device_date_uq",
-    ).on(
-      table.surveyType,
-      table.respondentHash,
-      table.submissionDate,
-    ),
+      "survey_responses_system_user_uq",
+    )
+      .on(table.surveyType, table.respondentHash)
+      .where(sql`${table.surveyType} = 'system_usage'`),
     uniqueIndex("survey_responses_submission_key_uq").on(
       table.submissionKey,
     ),

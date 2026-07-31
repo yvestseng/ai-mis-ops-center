@@ -12,8 +12,6 @@ import {
   Sparkles,
   UserRoundCog,
   Play,
-  Clock3,
-  CheckCircle2,
   SearchCheck,
   RefreshCw,
   Route,
@@ -586,6 +584,12 @@ type SurveySummaryRow = {
 type SurveyStatsResponse = {
   summaries?: SurveySummaryRow[];
   pendingFollowups?: number | string | null;
+  ownSubmission?: {
+    system_usage?: {
+      submitted?: boolean;
+      submittedAt?: string | null;
+    };
+  };
 };
 
 type SurveyMetric = {
@@ -598,12 +602,15 @@ type SurveyStatsState = Record<SurveyType, SurveyMetric> & {
   pendingFollowups: number;
 };
 
-function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, body:string) => void; onEmailTicket: () => void }) {
-  const [tab, setTab] = useState("SLA 與派工");
+function GovernanceConsole({ onOpen, onEmailTicket, session }: { onOpen: (title:string, body:string) => void; onEmailTicket: () => void; session: SessionUser }) {
+  const canManageGovernance = session.roleCode === "admin" || session.permissions.includes("surveys.read");
+  const [tab, setTab] = useState(canManageGovernance ? "SLA 與派工" : "系統使用問卷");
   const [toast, setToast] = useState("");
   const [systemSurvey, setSystemSurvey] = useState({ ease:"4", speed:"4", usefulness:"5", recommend:"9", comment:"整體操作清楚，希望持續增加自助排除功能。" });
   const [itSurvey, setItSurvey] = useState({ ticketReference:"", response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"張志豪", comment:"說明清楚，問題已完整排除。" });
   const [submittingSurvey, setSubmittingSurvey] = useState<"system_usage" | "it_service" | null>(null);
+  const [systemSurveySubmitted, setSystemSurveySubmitted] = useState(false);
+  const [systemSurveySubmittedAt, setSystemSurveySubmittedAt] = useState<string | null>(null);
   const [surveyStats, setSurveyStats] =
     useState<SurveyStatsState>({
       system_usage: {
@@ -666,12 +673,28 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
       }
 
       setSurveyStats(next);
+      setSystemSurveySubmitted(Boolean(data.ownSubmission?.system_usage?.submitted));
+      setSystemSurveySubmittedAt(data.ownSubmission?.system_usage?.submittedAt ?? null);
     } catch {
       // 保留目前統計資料，避免暫時性 API 錯誤中斷頁面。
     }
   };
+  useEffect(() => {
+  const timer = window.setTimeout(() => {
+    void loadSurveyStats();
+  }, 0);
+
+  return () => {
+    window.clearTimeout(timer);
+  };
+}, []);
+
   const submitSurvey = async (surveyType: "system_usage" | "it_service") => {
     if (submittingSurvey) return;
+    if (surveyType === "system_usage" && systemSurveySubmitted) {
+      flash("您已完成系統使用問卷，送出後不可修改或重複填寫");
+      return;
+    }
     if (surveyType === "it_service" && !itSurvey.ticketReference.trim()) {
       flash("請先輸入本次服務的工單編號");
       return;
@@ -704,7 +727,11 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
       }
       flash(result.message || (response.ok ? "問卷已成功送出" : "問卷送出失敗"));
       if (response.ok) {
+        if (surveyType === "system_usage") setSystemSurveySubmitted(true);
         if (surveyType === "it_service") setItSurvey({...itSurvey, ticketReference:""});
+        await loadSurveyStats();
+      } else if (surveyType === "system_usage" && response.status === 409) {
+        setSystemSurveySubmitted(true);
         await loadSurveyStats();
       }
     } catch {
@@ -713,7 +740,9 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
       setSubmittingSurvey(null);
     }
   };
-  const tabs = ["SLA 與派工", "AI 覆核", "知識庫", "重大事件", "系統使用問卷", "IT 人員服務調查"];
+  const tabs = canManageGovernance
+    ? ["SLA 與派工", "AI 覆核", "知識庫", "重大事件", "系統使用問卷", "IT 人員服務調查"]
+    : ["系統使用問卷"];
   const sla = [
     ["P1 緊急", "15 分鐘", "2 小時", "重大資安事件、全公司服務中斷"],
     ["P2 高", "30 分鐘", "4 小時", "多位使用者或部門服務中斷"],
@@ -744,6 +773,8 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
     {tab === "系統使用問卷" && <div className="survey-dashboard">
       <div className="module-summary"><article className="card"><span>系統整體滿意度</span><b>{surveyStats.system_usage.averageScore ? `${surveyStats.system_usage.averageScore} / 5` : "尚無資料"}</b><small>D1 即時彙整</small></article><article className="card"><span>平均推薦分數</span><b>{surveyStats.system_usage.averageNps ? `${surveyStats.system_usage.averageNps} / 10` : "尚無資料"}</b><small>0–10 分推薦意願</small></article><article className="card"><span>有效問卷</span><b>{surveyStats.system_usage.responseCount}</b><small>已永久儲存份數</small></article></div>
       <div className="card survey-form"><div className="survey-title"><div><span className="eyebrow">END USER EXPERIENCE</span><h3>系統使用上問卷調查</h3><p>了解使用者對 AI 報修、工單查詢及整體操作體驗的意見。</p></div><span className="survey-audience">一般使用者</span></div>
+        {systemSurveySubmitted && <div className="survey-completed-notice"><b>✓ 問卷已完成</b><span>此帳號已送出系統使用問卷，內容不可修改或再次提交{systemSurveySubmittedAt ? `（${new Date(systemSurveySubmittedAt).toLocaleString("zh-TW")}）` : ""}。</span></div>}
+        <fieldset className="survey-locked-fields" disabled={systemSurveySubmitted}>
         <div className="survey-question-grid">
           <label>介面是否容易理解？<select value={systemSurvey.ease} onChange={e=>setSystemSurvey({...systemSurvey,ease:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
           <label>操作與頁面回應速度？<select value={systemSurvey.speed} onChange={e=>setSystemSurvey({...systemSurvey,speed:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
@@ -751,7 +782,8 @@ function GovernanceConsole({ onOpen, onEmailTicket }: { onOpen: (title:string, b
           <label>推薦同事使用（0–10）<input type="number" min="0" max="10" value={systemSurvey.recommend} onChange={e=>setSystemSurvey({...systemSurvey,recommend:e.target.value})}/></label>
         </div>
         <label>希望改善的功能或其他建議<textarea value={systemSurvey.comment} onChange={e=>setSystemSurvey({...systemSurvey,comment:e.target.value})} /></label>
-        <div className="survey-actions"><small>問卷匿名儲存至 D1；同一裝置每天限填一次。</small><button className="primary" disabled={submittingSurvey !== null} onClick={() => void submitSurvey("system_usage")}>{submittingSurvey === "system_usage" ? "正在儲存…" : "送出系統使用問卷"}</button></div>
+        </fieldset>
+        <div className="survey-actions"><small>每個登入帳號限填一次；送出後永久鎖定，不可修改。</small><button className="primary" disabled={submittingSurvey !== null || systemSurveySubmitted} onClick={() => void submitSurvey("system_usage")}>{systemSurveySubmitted ? "已完成問卷" : submittingSurvey === "system_usage" ? "正在儲存…" : "送出系統使用問卷"}</button></div>
       </div>
     </div>}
     {tab === "IT 人員服務調查" && <div className="survey-dashboard">
@@ -1438,7 +1470,9 @@ export default function Home() {
   };
   const visibleNav = nav.filter((item) =>
     session?.roleCode === "admin" ||
-    session?.permissions.includes(permissionForNav[item.label]),
+    session?.permissions.includes(permissionForNav[item.label]) ||
+    (item.label === "服務治理" &&
+      session?.permissions.includes("surveys.submit.own")),
   );
   const displayNav = visibleNav.map((item) => ({
     ...item,
@@ -1513,7 +1547,7 @@ export default function Home() {
         <div className={`dashboard ${active !== "營運總覽" ? "admin-mode" : ""}`}>
           {active === "權限管理" && <RbacConsole />}
           {active === "系統設定" && <SettingsConsole />}
-          {active === "服務治理" && <GovernanceConsole onOpen={(title,body)=>setDetail({title,body})} onEmailTicket={simulateEmailTicket} />}
+          {active === "服務治理" && <GovernanceConsole onOpen={(title,body)=>setDetail({title,body})} onEmailTicket={simulateEmailTicket} session={session!} />}
           {active === "設備與服務" && <ResourceConsole entity="assets" canWrite={Boolean(canWriteAssets)} />}
           {active === "服務管理" && <ResourceConsole entity="services" canWrite={Boolean(canWriteServices)} />}
           {active === "我的工單" && <TicketWorkspace tickets={tickets} loading={ticketsLoading} onOpen={(title,body)=>setDetail({title,body})} onTicket={ticket=>void openTicket(ticket)} />}
