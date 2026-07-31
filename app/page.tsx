@@ -607,7 +607,8 @@ function GovernanceConsole({ onOpen, onEmailTicket, session }: { onOpen: (title:
   const [tab, setTab] = useState(canManageGovernance ? "SLA 與派工" : "系統使用問卷");
   const [toast, setToast] = useState("");
   const [systemSurvey, setSystemSurvey] = useState({ ease:"4", speed:"4", usefulness:"5", recommend:"9", comment:"整體操作清楚，希望持續增加自助排除功能。" });
-  const [itSurvey, setItSurvey] = useState({ ticketReference:"", response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"張志豪", comment:"說明清楚，問題已完整排除。" });
+  const [itSurvey, setItSurvey] = useState({ ticketReference:"", response:"5", expertise:"5", communication:"4", resolved:"是", engineer:"", comment:"說明清楚，問題已完整排除。" });
+  const [servicePersonLoading, setServicePersonLoading] = useState(false);
   const [submittingSurvey, setSubmittingSurvey] = useState<"system_usage" | "it_service" | null>(null);
   const [systemSurveySubmitted, setSystemSurveySubmitted] = useState(false);
   const [systemSurveySubmittedAt, setSystemSurveySubmittedAt] = useState<string | null>(null);
@@ -687,7 +688,44 @@ function GovernanceConsole({ onOpen, onEmailTicket, session }: { onOpen: (title:
   return () => {
     window.clearTimeout(timer);
   };
-}, []);
+    }, []);
+
+  const loadServicePerson = async () => {
+    const ticketReference = itSurvey.ticketReference.trim().toUpperCase();
+    if (!ticketReference) {
+      setItSurvey(current => ({ ...current, engineer: "" }));
+      return;
+    }
+    setServicePersonLoading(true);
+    try {
+      const response = await fetch(`/api/surveys?ticketReference=${encodeURIComponent(ticketReference)}`, {
+        cache: "no-store",
+      });
+      const text = await response.text();
+      let result: { message?: string; engineerName?: string } = {};
+      try {
+        result = JSON.parse(text);
+      } catch {
+        flash(`工單查詢回傳異常（HTTP ${response.status}）`);
+        return;
+      }
+      if (!response.ok) {
+        setItSurvey(current => ({ ...current, engineer: "" }));
+        flash(result.message || "無法取得此工單的實際服務人員");
+        return;
+      }
+      setItSurvey(current => ({
+        ...current,
+        ticketReference,
+        engineer: result.engineerName || "",
+      }));
+    } catch {
+      setItSurvey(current => ({ ...current, engineer: "" }));
+      flash("無法連線查詢工單服務人員");
+    } finally {
+      setServicePersonLoading(false);
+    }
+  };
 
   const submitSurvey = async (surveyType: "system_usage" | "it_service") => {
     if (submittingSurvey) return;
@@ -697,6 +735,10 @@ function GovernanceConsole({ onOpen, onEmailTicket, session }: { onOpen: (title:
     }
     if (surveyType === "it_service" && !itSurvey.ticketReference.trim()) {
       flash("請先輸入本次服務的工單編號");
+      return;
+    }
+    if (surveyType === "it_service" && !itSurvey.engineer.trim()) {
+      flash("請先查詢工單，確認實際服務人員後再送出");
       return;
     }
     setSubmittingSurvey(surveyType);
@@ -790,15 +832,15 @@ function GovernanceConsole({ onOpen, onEmailTicket, session }: { onOpen: (title:
       <div className="module-summary"><article className="card"><span>IT 人員服務滿意度</span><b>{surveyStats.it_service.averageScore ? `${surveyStats.it_service.averageScore} / 5` : "尚無資料"}</b><small>D1 即時彙整</small></article><article className="card"><span>有效服務回饋</span><b>{surveyStats.it_service.responseCount}</b><small>依工單編號去除重複</small></article><article className="card"><span>低分待追蹤</span><b>{surveyStats.pendingFollowups}</b><small>自動建立改善事項</small></article></div>
       <div className="card survey-form"><div className="survey-title"><div><span className="eyebrow">IT SERVICE QUALITY</span><h3>IT 人員服務調查</h3><p>針對資訊人員的回應速度、專業能力、溝通品質與解決結果進行評價。</p></div><span className="survey-audience service">結案回饋</span></div>
         <div className="survey-question-grid">
-          <label>工單編號<input required value={itSurvey.ticketReference} onChange={e=>setItSurvey({...itSurvey,ticketReference:e.target.value})} placeholder="例如 INC-20260726-001" /></label>
-          <label>服務人員<select value={itSurvey.engineer} onChange={e=>setItSurvey({...itSurvey,engineer:e.target.value})}><option>張志豪</option><option>李柏翰</option><option>吳宜庭</option><option>劉又誠</option></select></label>
+          <label>工單編號<input required value={itSurvey.ticketReference} onChange={e=>setItSurvey({...itSurvey,ticketReference:e.target.value,engineer:""})} onBlur={() => void loadServicePerson()} placeholder="例如 INC-20260726-001" /></label>
+          <label>服務人員<input value={servicePersonLoading ? "正在查詢…" : itSurvey.engineer} readOnly placeholder="輸入工單編號後自動帶入實際處理人員" /></label>
           <label>回應與處理速度<select value={itSurvey.response} onChange={e=>setItSurvey({...itSurvey,response:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
           <label>問題解決專業度<select value={itSurvey.expertise} onChange={e=>setItSurvey({...itSurvey,expertise:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
           <label>說明與溝通品質<select value={itSurvey.communication} onChange={e=>setItSurvey({...itSurvey,communication:e.target.value})}>{["5","4","3","2","1"].map(x=><option key={x} value={x}>{x} 分</option>)}</select></label>
           <label>本次問題是否已解決？<select value={itSurvey.resolved} onChange={e=>setItSurvey({...itSurvey,resolved:e.target.value})}><option>是</option><option>部分解決</option><option>否</option></select></label>
         </div>
         <label>服務意見與改善建議<textarea value={itSurvey.comment} onChange={e=>setItSurvey({...itSurvey,comment:e.target.value})} /></label>
-        <div className="survey-actions"><small>低於 3 分或尚未解決的回饋將自動列入改善追蹤。</small><button className="primary" disabled={submittingSurvey !== null} onClick={() => void submitSurvey("it_service")}>{submittingSurvey === "it_service" ? "正在儲存…" : "送出 IT 服務調查"}</button></div>
+        <div className="survey-actions"><small>低於 3 分或尚未解決的回饋將自動列入改善追蹤。</small><button className="primary" disabled={submittingSurvey !== null || servicePersonLoading || !itSurvey.engineer} onClick={() => void submitSurvey("it_service")}>{submittingSurvey === "it_service" ? "正在儲存…" : "送出 IT 服務調查"}</button></div>
       </div>
     </div>}
     {toast && <div className="toast">✓ {toast}</div>}

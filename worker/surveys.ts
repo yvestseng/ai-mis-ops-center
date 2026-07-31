@@ -281,10 +281,30 @@ async function createSurvey(request: Request, db: D1Database, identity: Identity
       );
     }
 
-    engineerName =
-      ticket.assignedTeam ||
-      textValue(payload.engineer, 80) ||
-      "MIS 服務台";
+    const assignedEngineer = await db
+      .prepare(
+        `SELECT u.display_name AS displayName
+         FROM tickets t
+         JOIN app_users u ON u.id = t.assigned_user_id
+         WHERE t.ticket_number = ?
+           AND lower(t.requester_email) = lower(?)
+           AND u.status = 'active'
+         LIMIT 1`,
+      )
+      .bind(ticketReference, identity.email)
+      .first<{ displayName: string }>();
+
+    if (!assignedEngineer?.displayName) {
+      return json(
+        {
+          error: "ENGINEER_NOT_ASSIGNED",
+          message: "此工單尚未指派實際服務人員，無法提交服務評分。",
+        },
+        409,
+      );
+    }
+
+    engineerName = assignedEngineer.displayName;
 
     overallScore = Number(
       ((response + expertise + communication) / 3).toFixed(2),
@@ -416,6 +436,54 @@ async function createSurvey(request: Request, db: D1Database, identity: Identity
   );
 }
 
+async function getServiceSurveyTicket(request: Request, db: D1Database, identity: Identity) {
+  const ticketReference = textValue(
+    new URL(request.url).searchParams.get("ticketReference"),
+    40,
+  ).toUpperCase();
+
+  if (!ticketReference) {
+    return json({ error: "MISSING_TICKET", message: "請輸入工單編號。" }, 400);
+  }
+
+  const ticket = await db.prepare(
+    `SELECT t.ticket_number AS ticketNumber,
+            t.status,
+            u.display_name AS engineerName,
+            u.email AS engineerEmail
+     FROM tickets t
+     LEFT JOIN app_users u
+       ON u.id = t.assigned_user_id
+      AND u.status = 'active'
+     WHERE t.ticket_number = ?
+       AND lower(t.requester_email) = lower(?)
+     LIMIT 1`,
+  ).bind(ticketReference, identity.email).first<{
+    ticketNumber: string;
+    status: string;
+    engineerName: string | null;
+    engineerEmail: string | null;
+  }>();
+
+  if (!ticket) {
+    return json({ error: "TICKET_NOT_FOUND", message: "找不到此工單，或您沒有此工單的評分權限。" }, 404);
+  }
+
+  if (!["已解決", "已結案", "已關閉"].includes(ticket.status)) {
+    return json({ error: "TICKET_NOT_RESOLVED", message: "工單必須先完成處理，才能提交服務評分。" }, 409);
+  }
+
+  if (!ticket.engineerName) {
+    return json({ error: "ENGINEER_NOT_ASSIGNED", message: "此工單尚未指派實際服務人員，請先由 MIS 完成指派。" }, 409);
+  }
+
+  return json({
+    ticketNumber: ticket.ticketNumber,
+    engineerName: ticket.engineerName,
+    engineerEmail: ticket.engineerEmail,
+  });
+}
+
 async function getSurveyStats(db: D1Database, identity: Identity) {
   const [summaryResult, followupResult] = await Promise.all([
     db
@@ -507,7 +575,10 @@ export function handleSurveyRequest(
       const auth = await requireIdentity(request, db);
       if (!auth.identity) return auth.response!;
       if (auth.response) return auth.response;
-      return getSurveyStats(db, auth.identity);
+      const ticketReference = new URL(request.url).searchParams.get("ticketReference");
+      return ticketReference
+        ? getServiceSurveyTicket(request, db, auth.identity)
+        : getSurveyStats(db, auth.identity);
     }
 
     return json(
