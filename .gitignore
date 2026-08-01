@@ -1,100 +1,15 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-next-env.d.ts
-/dist/
-/.wrangler/
-/.sites-runtime/
-/outputs/
-/work/
-.vs/
-tsconfig.tsbuildinfo
-*.tsbuildinfo
-.vinext/
+node_modules/
 dist/
 .next/
+.vinext/
 .wrangler/
-drizzle-recovered/
-drizzle.recovery.config.ts
-schema-recovery-*/
-corrupted-schema-backup-*/
-local-d1-backup-*/
-*.before-recovery
-*.before-status-fix
-*.before-type-fix
-*.before-env-fix
-apply_d1_migrations.py
-check_local_tickets.py
-check_tickets.py
-
-# Visual Studio local files
-
-# TypeScript cache
-
-# Vinext and local build output
-
-# Wrangler local state
-
-# D1 schema recovery and local backups
-
-# Temporary source backups
-*.before-final-env-fix
-*.before-binding-cast-fix
-
-# Local maintenance scripts
-
-# Local Cloudflare configuration
-wrangler.local.jsonc
-
-# D1 database backups
-remote-d1-backup-*/
-
-# Local recovered Drizzle files
+.sites-runtime/
+.env*
+!.env.example
+.vs/
+coverage/
+*.log
+*.before-*
 drizzle-recovered/
 
-# Local migration and Wrangler backups
-drizzle/*.sql.backup_*
-drizzle/*.sql.before-seed-fix_*
-wrangler.local.jsonc.backup_*
-
-# Local project packages
-*.zip
-README-DESIGN.txt
-README-ICON-UPDATE.txt
-README_版面修改說明.md
-docs/UI_reference.png
-README_*版面*.md
-README_*.md
+site-creator-d1-*.sql

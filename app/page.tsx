@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
@@ -973,17 +974,17 @@ function TicketWorkspace({
 
       <div className="ticket-kpis">
         <article className="holo-card">
-          <span className="holo-icon holo-art"><img src="/ui/kpi-all-tickets.svg" alt="全部工單" /></span>
+          <span className="holo-icon holo-art"><Image src="/ui/kpi-all-tickets.svg" alt="全部工單" width={48} height={48} /></span>
           <div><small>全部工單</small><strong>{tickets.length}</strong><em>D1 永久儲存</em></div>
           <span className="kpi-accent kpi-accent-circuit" aria-hidden="true"><i /><i /><i /></span>
         </article>
         <article className="holo-card">
-          <span className="holo-icon holo-art"><img src="/ui/kpi-pending.svg" alt="待處理" /></span>
+          <span className="holo-icon holo-art"><Image src="/ui/kpi-pending.svg" alt="待處理" width={48} height={48} /></span>
           <div><small>待處理</small><strong>{pending}</strong><em>依優先級排序</em></div>
           <span className="kpi-accent kpi-accent-radar" aria-hidden="true"><i /></span>
         </article>
         <article className="holo-card">
-          <span className="holo-icon holo-art"><img src="/ui/kpi-processing.svg" alt="處理中" /></span>
+          <span className="holo-icon holo-art"><Image src="/ui/kpi-processing.svg" alt="處理中" width={48} height={48} /></span>
           <div><small>處理中</small><strong>{processing}</strong><em className="live"><i />狀態即時更新</em></div>
           <span className="kpi-accent kpi-accent-grid" aria-hidden="true"><i /><i /><i /><i /></span>
         </article>
@@ -1038,8 +1039,11 @@ function LoginScreen({
   authIssue: string;
   onAuthenticated: (user: SessionUser) => void;
 }) {
-  const [username, setUsername] = useState("admin01");
-  const [password, setPassword] = useState("Admin@2026");
+  const [demoMode] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1",
+  );
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState(authIssue);
   const [loading, setLoading] = useState(false);
@@ -1096,18 +1100,18 @@ function LoginScreen({
     <section className="login-panel">
       <div className="login-card">
         <span className="login-shield">✓</span>
-        <div><span className="eyebrow">RBAC TEST ACCESS</span><h2>多角色測試登入</h2><p>使用內建測試帳號驗證不同角色的選單、資料範圍與操作權限。</p></div>
-        <div className="test-account-grid">
+        <div><span className="eyebrow">SECURE ACCESS</span><h2>{demoMode ? "多角色測試登入" : "企業資訊服務登入"}</h2><p>{demoMode ? "此模式僅供本機或授權測試環境驗證角色權限。" : "請使用系統管理員核發的帳號登入。正式環境建議串接 Microsoft Entra ID。"}</p></div>
+        {demoMode && <div className="test-account-grid">
           {testAccounts.map((account) => <button type="button" key={account.username} className={username === account.username ? "selected" : ""} onClick={() => selectAccount(account)}><b>{account.role}</b><span>{account.username}</span><small>套用測試帳密</small></button>)}
-        </div>
+        </div>}
         <form className="login-form" onSubmit={(event) => void login(event)}>
-          <label>測試帳號<div className="login-input"><span>◎</span><input required autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></div></label>
+          <label>登入帳號<div className="login-input"><span>◎</span><input required autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></div></label>
           <label>密碼<div className="login-input"><span>●</span><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? "隱藏" : "顯示"}</button></div></label>
           {message && <div className="login-error" role="alert"><b>無法登入</b><span>{message}</span></div>}
-          <button className="login-submit" disabled={loading}>{loading ? "正在驗證…" : "登入測試系統"} <span>→</span></button>
+          <button className="login-submit" disabled={loading}>{loading ? "正在驗證…" : "安全登入"} <span>→</span></button>
         </form>
-        <div className="demo-account"><b>測試環境提醒</b><span>測試密碼會經 PBKDF2 雜湊後保存，登入狀態由伺服器端工作階段驗證。正式導入時再切換為 Microsoft Entra ID。</span></div>
-        <p className="login-security">🔒 請勿在本測試系統使用公司正式密碼。</p>
+        {demoMode ? <div className="demo-account"><b>測試環境提醒</b><span>Demo 帳號只應在本機環境啟用，正式部署已預設禁止自動建立測試帳號。</span></div> : <div className="demo-account"><b>帳號安全</b><span>連續登入失敗將暫時鎖定；角色或帳號狀態變更後，既有工作階段會立即撤銷。</span></div>}
+        <p className="login-security">🔒 請勿共用帳號或將密碼交付他人。</p>
       </div>
     </section>
   </main>;
@@ -1547,7 +1551,7 @@ export default function Home() {
     !Boolean(ticketDetail!.ticket.surveySubmitted);
   const initials = (session?.displayName || "U").slice(0, 2).toUpperCase();
 
-  if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span></main>;
+  if (authenticated === null) return <main className="auth-loading" aria-label="系統載入中"><span className="brandmark">A</span><p>系統載入中…</p></main>;
   if (!authenticated) return <LoginScreen authIssue={authIssue} onAuthenticated={(user) => {
     setTickets([]);
     setTicketDetail(null);
@@ -1613,9 +1617,9 @@ export default function Home() {
             <div className="ai-visual"><AiCoreAnimation /></div>
           </section>
 
-          <section className="service-card card"><div className="section-title"><h2>服務狀態</h2><span className="healthy"><i/>整體運作正常</span></div><div className="service-body"><div className="availability"><div><strong>99.94%</strong><span>可用率</span><small>過去 7 天</small></div></div><div className="services">{[["/ui/service-microsoft365.svg","Microsoft 365","正常"],["/ui/service-network.svg","公司網路","正常"],["/ui/service-vpn.svg","VPN","部分異常"],["/ui/service-erp.svg","ERP","正常"]].map(([icon,n,s]) => <button key={n} onClick={()=>setDetail({title:n,body:`${n}目前狀態：${s}。最近一次健康檢查已完成，可前往設備與服務模組執行連線測試。`})}><span className="service-brand-icon"><img src={icon} alt="" /></span><span>{n}</span><em className={s !== "正常" ? "degraded" : ""}>{s}</em><i>›</i></button>)}</div></div><button className="more" onClick={()=>setActive("設備與服務")}>查看服務狀態詳情 ›</button></section>
+          <section className="service-card card"><div className="section-title"><h2>服務狀態</h2><span className="healthy"><i/>整體運作正常</span></div><div className="service-body"><div className="availability"><div><strong>99.94%</strong><span>可用率</span><small>過去 7 天</small></div></div><div className="services">{[["/ui/service-microsoft365.svg","Microsoft 365","正常"],["/ui/service-network.svg","公司網路","正常"],["/ui/service-vpn.svg","VPN","部分異常"],["/ui/service-erp.svg","ERP","正常"]].map(([icon,n,s]) => <button key={n} onClick={()=>setDetail({title:n,body:`${n}目前狀態：${s}。最近一次健康檢查已完成，可前往設備與服務模組執行連線測試。`})}><span className="service-brand-icon"><Image src={icon} alt="" width={40} height={40} /></span><span>{n}</span><em className={s !== "正常" ? "degraded" : ""}>{s}</em><i>›</i></button>)}</div></div><button className="more" onClick={()=>setActive("設備與服務")}>查看服務狀態詳情 ›</button></section>
 
-          <section className="metrics">{[["/ui/kpi-all-tickets.svg","待處理工單",String(tickets.filter(x=>x.status==="待處理").length),"D1 即時資料","blue"],["/ui/kpi-my-tickets.svg","我的工單",String(tickets.length),ticketsLoading?"正在同步":"已永久儲存","cyan"],["/ui/kpi-processing.svg","處理中",String(tickets.filter(x=>x.status==="處理中").length),"可查看處理歷程","cyan"],["/ui/kpi-high-priority.svg","高優先以上",String(tickets.filter(x=>x.priority==="高"||x.priority==="緊急").length),"優先追蹤","red"]].map(([icon,l,v,d,c]) => <article className="card metric" key={l}><span className={`metric-icon metric-art ${c}`}><img src={icon} alt="" /></span><div><p>{l}</p><strong>{v}</strong><small>{d}</small></div></article>)}</section>
+          <section className="metrics">{[["/ui/kpi-all-tickets.svg","待處理工單",String(tickets.filter(x=>x.status==="待處理").length),"D1 即時資料","blue"],["/ui/kpi-my-tickets.svg","我的工單",String(tickets.length),ticketsLoading?"正在同步":"已永久儲存","cyan"],["/ui/kpi-processing.svg","處理中",String(tickets.filter(x=>x.status==="處理中").length),"可查看處理歷程","cyan"],["/ui/kpi-high-priority.svg","高優先以上",String(tickets.filter(x=>x.priority==="高"||x.priority==="緊急").length),"優先追蹤","red"]].map(([icon,l,v,d,c]) => <article className="card metric" key={l}><span className={`metric-icon metric-art ${c}`}><Image src={icon} alt="" width={40} height={40} /></span><div><p>{l}</p><strong>{v}</strong><small>{d}</small></div></article>)}</section>
 
           <section className="tickets card"><div className="section-title"><h2>我的最新工單</h2><button onClick={()=>setActive("我的工單")}>查看全部 ›</button></div><div className="table-wrap"><table><thead><tr>{["工單編號","標題","狀態","來源","優先級","建立時間","指派對象"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{tickets.length ? tickets.slice(0,8).map(ticket => <tr key={ticket.id} onClick={()=>void openTicket(ticket)}><td><a>{ticket.ticketNumber}</a></td><td>{ticket.title}</td><td>{ticket.status}</td><td>{ticket.source}</td><td><span className={`priority p-${ticket.priority}`}>{ticket.priority}</span></td><td>{new Date(ticket.createdAt).toLocaleString("zh-TW",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>{ticket.assignedTeam}</td></tr>) : <tr><td colSpan={7}><div className="empty-state"><b>{ticketsLoading ? "正在讀取工單…" : "尚未建立任何工單"}</b><span>{ticketsLoading ? "請稍候" : "使用上方 AI 報修即可建立正式工單。"}</span></div></td></tr>}</tbody></table></div></section>
 

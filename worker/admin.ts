@@ -125,12 +125,14 @@ async function createUser(
     !/^[a-z0-9][a-z0-9._-]{2,79}$/.test(username) ||
     !email.includes("@") ||
     !displayName ||
-    password.length < 8 ||
-    !/[A-Za-z]/.test(password) ||
-    !/\d/.test(password)
+    password.length < 12 ||
+    !/[a-z]/.test(password) ||
+    !/[A-Z]/.test(password) ||
+    !/\d/.test(password) ||
+    !/[^A-Za-z0-9]/.test(password)
   ) {
     return json(
-      { message: "請填寫有效帳號、姓名、信箱，以及至少 8 碼且包含英文字母與數字的初始密碼。" },
+      { message: "請填寫有效帳號、姓名、信箱，以及至少 12 碼，且包含英文大小寫字母、數字與特殊符號的初始密碼。" },
       400,
     );
   }
@@ -171,7 +173,7 @@ async function createUser(
       {
         ok: true,
         id,
-        message: `測試帳號 ${username} 已建立，可立即使用初始密碼登入。`,
+        message: `帳號 ${username} 已建立，可立即使用初始密碼登入。`,
       },
       201,
     );
@@ -289,11 +291,13 @@ async function update(
           : 0;
     if (
       newPassword &&
-      (newPassword.length < 8 ||
-        !/[A-Za-z]/.test(newPassword) ||
-        !/\d/.test(newPassword))
+      (newPassword.length < 12 ||
+        !/[a-z]/.test(newPassword) ||
+        !/[A-Z]/.test(newPassword) ||
+        !/\d/.test(newPassword) ||
+        !/[^A-Za-z0-9]/.test(newPassword))
     ) {
-      return json({ message: "新密碼至少 8 碼，且必須包含英文字母與數字。" }, 400);
+      return json({ message: "新密碼至少 12 碼，且必須包含英文大小寫字母、數字與特殊符號。" }, 400);
     }
     if (
       newUsername &&
@@ -340,7 +344,9 @@ async function update(
         db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(id),
       ]);
     } else {
-      await db
+      const statusValue = clean(data.status, 20);
+      const shouldRevokeSessions = Boolean(statusValue || requestedRoleId);
+      const statements = [db
         .prepare(
           `UPDATE app_users
            SET display_name = COALESCE(NULLIF(?, ''), display_name),
@@ -365,8 +371,11 @@ async function update(
           clean(data.status, 20),
           now,
           id,
-        )
-        .run();
+        )];
+      if (shouldRevokeSessions) {
+        statements.push(db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(id));
+      }
+      await db.batch(statements);
     }
   } else if (entity === "teams") {
     const teamCode = clean(data.teamCode, 40).toUpperCase().replace(/[^A-Z0-9_]/g, "_");

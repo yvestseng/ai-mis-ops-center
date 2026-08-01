@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: Cloudflare compatibility config is single-sourced and locally supported
+ok 1 - Cloudflare compatibility config is single-sourced and locally supported
+  ---
+  duration_ms: 4.138456
+  type: 'test'
+  ...
+# Subtest: local CSP does not force HTTP assets to HTTPS
+ok 2 - local CSP does not force HTTP assets to HTTPS
+  ---
+  duration_ms: 0.876464
+  type: 'test'
+  ...
+# Subtest: production does not enable demo accounts
+ok 3 - production does not enable demo accounts
+  ---
+  duration_ms: 0.768994
+  type: 'test'
+  ...
+# Subtest: API validation is awaited and unknown API routes return JSON 404
+ok 4 - API validation is awaited and unknown API routes return JSON 404
+  ---
+  duration_ms: 1.396146
+  type: 'test'
+  ...
+# Subtest: App Router build dependency is declared
+ok 5 - App Router build dependency is declared
+  ---
+  duration_ms: 0.722274
+  type: 'test'
+  ...
+# Subtest: image and PostCSS lint warnings are eliminated
+ok 6 - image and PostCSS lint warnings are eliminated
+  ---
+  duration_ms: 1.287055
+  type: 'test'
+  ...
+# Subtest: API gateway applies request validation and security headers
+ok 7 - API gateway applies request validation and security headers
+  ---
+  duration_ms: 3.433738
+  type: 'test'
+  ...
+# Subtest: security policy blocks cross-origin mutations and oversized payloads
+ok 8 - security policy blocks cross-origin mutations and oversized payloads
+  ---
+  duration_ms: 0.975892
+  type: 'test'
+  ...
+# Subtest: login includes bounded brute-force protection and demo isolation
+ok 9 - login includes bounded brute-force protection and demo isolation
+  ---
+  duration_ms: 0.754663
+  type: 'test'
+  ...
+# Subtest: Cloudflare compatibility flags are declared only in wrangler config
+ok 10 - Cloudflare compatibility flags are declared only in wrangler config
+  ---
+  duration_ms: 1.600651
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 50.890391

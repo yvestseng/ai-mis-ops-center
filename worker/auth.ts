@@ -38,6 +38,9 @@ type PasswordRecord = {
 
 const SESSION_COOKIE = "mis_session";
 const SESSION_SECONDS = 8 * 60 * 60;
+const LOGIN_WINDOW_MINUTES = 15;
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCK_MINUTES = 15;
 // Cloudflare's hosted runtime rejects the previous 150,000-iteration request.
 // This test environment uses a bounded PBKDF2 cost so authentication remains
 // inside the Worker CPU budget. Production identity will move to Entra ID.
@@ -297,6 +300,18 @@ async function ensureAuthSchema(db: D1Database) {
     db.prepare(
       "CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_uq ON app_users(username)",
     ),
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS login_attempts (
+        id text PRIMARY KEY NOT NULL,
+        login_key text NOT NULL,
+        ip_hash text NOT NULL,
+        succeeded integer DEFAULT 0 NOT NULL,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`,
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS login_attempts_lookup_idx ON login_attempts(login_key, ip_hash, created_at)",
+    ),
   ]);
 }
 
@@ -455,7 +470,59 @@ export async function requirePermission(
   return result;
 }
 
-async function handleLoginCore(request: Request, db: D1Database) {
+function clientIp(request: Request) {
+  return (
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown"
+  );
+}
+
+async function loginRateStatus(request: Request, db: D1Database, loginKey: string) {
+  const ipHash = await sha256(clientIp(request));
+  const since = new Date(Date.now() - LOGIN_WINDOW_MINUTES * 60_000).toISOString();
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS failures, MAX(created_at) AS lastFailure
+       FROM login_attempts
+       WHERE login_key = ? AND ip_hash = ? AND succeeded = 0 AND created_at >= ?`,
+    )
+    .bind(loginKey, ipHash, since)
+    .first<{ failures: number; lastFailure: string | null }>();
+  const failures = Number(row?.failures || 0);
+  if (failures < LOGIN_MAX_FAILURES) return { locked: false, ipHash };
+  const last = row?.lastFailure ? Date.parse(row.lastFailure) : Date.now();
+  const retryAfter = Math.max(1, Math.ceil((last + LOGIN_LOCK_MINUTES * 60_000 - Date.now()) / 1000));
+  return { locked: retryAfter > 0, ipHash, retryAfter };
+}
+
+async function recordLoginAttempt(
+  db: D1Database,
+  loginKey: string,
+  ipHash: string,
+  succeeded: boolean,
+) {
+  const now = new Date().toISOString();
+  const cleanupBefore = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  if (succeeded) {
+    await db.batch([
+      db.prepare(
+        "DELETE FROM login_attempts WHERE login_key = ? AND ip_hash = ? AND succeeded = 0",
+      ).bind(loginKey, ipHash),
+      db.prepare("DELETE FROM login_attempts WHERE created_at < ?").bind(cleanupBefore),
+    ]);
+    return;
+  }
+  await db.batch([
+    db.prepare(
+      `INSERT INTO login_attempts (id, login_key, ip_hash, succeeded, created_at)
+       VALUES (?, ?, ?, 0, ?)`,
+    ).bind(crypto.randomUUID(), loginKey, ipHash, now),
+    db.prepare("DELETE FROM login_attempts WHERE created_at < ?").bind(cleanupBefore),
+  ]);
+}
+
+async function handleLoginCore(request: Request, db: D1Database, allowDemoAccounts: boolean) {
   if (request.method !== "POST") {
     return json({ message: "不支援此操作。" }, 405);
   }
@@ -465,11 +532,13 @@ async function handleLoginCore(request: Request, db: D1Database) {
     console.error("Auth schema initialization failed", error);
     throw new Error("AUTH_SCHEMA", { cause: error });
   }
-  try {
-    await ensureDemoAccounts(db);
-  } catch (error) {
-    console.error("Demo account initialization failed", error);
-    throw new Error("AUTH_SEED", { cause: error });
+  if (allowDemoAccounts) {
+    try {
+      await ensureDemoAccounts(db);
+    } catch (error) {
+      console.error("Demo account initialization failed", error);
+      throw new Error("AUTH_SEED", { cause: error });
+    }
   }
   let payload: Record<string, unknown>;
   try {
@@ -481,6 +550,14 @@ async function handleLoginCore(request: Request, db: D1Database) {
   const password = clean(payload.password, 200);
   if (!username || !password) {
     return json({ message: "請輸入帳號與密碼。" }, 400);
+  }
+  const rate = await loginRateStatus(request, db, username);
+  if (rate.locked) {
+    return json(
+      { error: "LOGIN_RATE_LIMITED", message: "登入失敗次數過多，請稍後再試。" },
+      429,
+      { "retry-after": String(rate.retryAfter || LOGIN_LOCK_MINUTES * 60) },
+    );
   }
   let row: Record<string, string | null> | null;
   try {
@@ -519,9 +596,11 @@ async function handleLoginCore(request: Request, db: D1Database) {
     !row.passwordSalt ||
     !passwordMatches
   ) {
+    await recordLoginAttempt(db, username, rate.ipHash, false);
     return json({ message: "帳號或密碼錯誤，請重新輸入。" }, 401);
   }
 
+  await recordLoginAttempt(db, username, rate.ipHash, true);
   const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256(token);
   const now = new Date();
@@ -566,9 +645,13 @@ async function handleLoginCore(request: Request, db: D1Database) {
   );
 }
 
-export async function handleLoginRequest(request: Request, db: D1Database) {
+export async function handleLoginRequest(
+  request: Request,
+  db: D1Database,
+  allowDemoAccounts = false,
+) {
   try {
-    return await handleLoginCore(request, db);
+    return await handleLoginCore(request, db, allowDemoAccounts);
   } catch (error) {
     console.error("Login initialization failed", error);
     const diagnosticCode =
