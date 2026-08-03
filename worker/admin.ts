@@ -10,6 +10,13 @@ import {
 
 type Entity = "users" | "roles" | "teams" | "assets" | "services" | "audit";
 
+type UserAdminState = {
+  id: string;
+  status: string;
+  roleId: string;
+  roleCode: string;
+};
+
 function clean(value: unknown, length = 200) {
   return typeof value === "string" ? value.trim().slice(0, length) : "";
 }
@@ -33,6 +40,78 @@ const entityPermission: Record<
   services: { read: "services.read", write: "services.write" },
   audit: { read: "audit.read" },
 };
+
+async function getUserAdminState(db: D1Database, id: string) {
+  return db
+    .prepare(
+      `SELECT u.id,
+              u.status,
+              u.role_id AS roleId,
+              r.code AS roleCode
+       FROM app_users u
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.id = ?`,
+    )
+    .bind(id)
+    .first<UserAdminState>();
+}
+
+async function countOtherActiveAdmins(db: D1Database, id: string) {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS total
+       FROM app_users u
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.id <> ?
+         AND u.status = 'active'
+         AND r.code = 'admin'`,
+    )
+    .bind(id)
+    .first<{ total: number }>();
+  return Number(row?.total || 0);
+}
+
+async function assertUserMutationAllowed(
+  db: D1Database,
+  identity: Identity,
+  id: string,
+  nextStatus?: string,
+  nextRoleId?: string,
+) {
+  const current = await getUserAdminState(db, id);
+  if (!current) {
+    return json({ error: "USER_NOT_FOUND", message: "找不到指定使用者。" }, 404);
+  }
+
+  const normalizedStatus = nextStatus || current.status;
+  let normalizedRoleCode = current.roleCode;
+
+  if (nextRoleId) {
+    const role = await db
+      .prepare("SELECT code FROM roles WHERE id = ?")
+      .bind(nextRoleId)
+      .first<{ code: string }>();
+    if (!role) {
+      return json({ error: "ROLE_NOT_FOUND", message: "指定角色不存在，請重新整理後再試。" }, 400);
+    }
+    normalizedRoleCode = role.code;
+  }
+
+  if (id === identity.id && normalizedStatus !== "active") {
+    return json({ error: "SELF_DISABLE_DENIED", message: "不可停用目前登入中的自己。" }, 400);
+  }
+
+  const removesActiveAdmin =
+    current.status === "active" &&
+    current.roleCode === "admin" &&
+    (normalizedStatus !== "active" || normalizedRoleCode !== "admin");
+
+  if (removesActiveAdmin && (await countOtherActiveAdmins(db, id)) === 0) {
+    return json({ error: "LAST_ADMIN_DENIED", message: "不可停用、刪除或移除最後一位系統管理員權限。" }, 400);
+  }
+
+  return null;
+}
 
 async function list(entity: Entity, db: D1Database) {
   const sql: Record<Entity, string> = {
@@ -286,12 +365,18 @@ async function update(
 ) {
   const now = new Date().toISOString();
   if (entity === "users") {
-    if (id === "user-owner" && clean(data.status) === "disabled") {
-      return json({ message: "主要系統管理員不可停用。" }, 400);
-    }
     const newPassword = clean(data.newPassword, 200);
     const newUsername = clean(data.username, 80).toLowerCase();
     const requestedRoleId = clean(data.roleId, 80);
+    const statusValue = clean(data.status, 20);
+    const guard = await assertUserMutationAllowed(
+      db,
+      identity,
+      id,
+      statusValue || undefined,
+      requestedRoleId || undefined,
+    );
+    if (guard) return guard;
     const requestedTeamId = data.teamId === undefined ? "__KEEP__" : clean(data.teamId, 80);
     const requestedAssignable =
       data.isAssignable === undefined
@@ -344,7 +429,7 @@ async function update(
             requestedAssignable,
             requestedAssignable,
             requestedRoleId,
-            clean(data.status, 20),
+            statusValue,
             passwordRecord.passwordHash,
             passwordRecord.passwordSalt,
             now,
@@ -354,7 +439,6 @@ async function update(
         db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(id),
       ]);
     } else {
-      const statusValue = clean(data.status, 20);
       const shouldRevokeSessions = Boolean(statusValue || requestedRoleId);
       const statements = [db
         .prepare(
@@ -378,7 +462,7 @@ async function update(
           requestedAssignable,
           requestedAssignable,
           requestedRoleId,
-          clean(data.status, 20),
+          statusValue,
           now,
           id,
         )];
@@ -472,8 +556,12 @@ async function remove(
   db: D1Database,
   identity: Identity,
 ) {
-  if (entity === "users" && id === "user-owner") {
-    return json({ message: "主要系統管理員不可刪除。" }, 400);
+  if (entity === "users") {
+    if (id === identity.id) {
+      return json({ error: "SELF_DELETE_DENIED", message: "不可刪除目前登入中的自己。" }, 400);
+    }
+    const guard = await assertUserMutationAllowed(db, identity, id, "disabled");
+    if (guard) return guard;
   }
   if (entity === "teams") {
     const usage = await db.prepare(
