@@ -40,11 +40,6 @@ END,
 END
 WHERE `team_id` IS NULL;
 --> statement-breakpoint
-ALTER TABLE `tickets` ADD `assigned_team_id` text;--> statement-breakpoint
-ALTER TABLE `tickets` ADD `assigned_user_id` text;--> statement-breakpoint
-ALTER TABLE `tickets` ADD `ai_suggested_team_id` text;--> statement-breakpoint
-ALTER TABLE `tickets` ADD `assignment_source` text;--> statement-breakpoint
-ALTER TABLE `tickets` ADD `assigned_at` text;--> statement-breakpoint
 UPDATE `tickets`
 SET `assigned_team_id` = CASE
   WHEN `assigned_team` LIKE '%網路%' THEN 'team-network'
