@@ -29,6 +29,13 @@
       "when": 1785117883800,
       "tag": "0003_rainy_komodo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785720000000,
+      "tag": "0009_remote_schema_alignment",
+      "breakpoints": true
     }
   ]
 }
