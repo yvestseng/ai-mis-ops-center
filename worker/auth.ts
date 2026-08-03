@@ -200,124 +200,56 @@ function clean(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-async function ensureAuthSchema(db: D1Database) {
-  // A fresh local D1 database does not contain the application tables yet.
-  // Create authentication dependencies first. Each statement is idempotent,
-  // making this safe for both local and existing hosted databases.
-  await db.batch([
-    db.prepare(
-      `CREATE TABLE IF NOT EXISTS roles (
-        id text PRIMARY KEY NOT NULL,
-        code text NOT NULL,
-        name text NOT NULL,
-        permissions text DEFAULT '[]' NOT NULL,
-        is_system integer DEFAULT 0 NOT NULL,
-        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
-      )`,
-    ),
-    db.prepare(
-      `CREATE TABLE IF NOT EXISTS app_users (
-        id text PRIMARY KEY NOT NULL,
-        username text,
-        email text NOT NULL,
-        display_name text NOT NULL,
-        department text,
-        team_id text,
-        is_assignable integer DEFAULT 0 NOT NULL,
-        role_id text NOT NULL,
-        password_hash text,
-        password_salt text,
-        password_changed_at text,
-        status text DEFAULT 'active' NOT NULL,
-        last_login_at text,
-        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        FOREIGN KEY (role_id) REFERENCES roles(id)
-      )`,
-    ),
-    db.prepare(
-      `CREATE TABLE IF NOT EXISTS audit_logs (
-        id text PRIMARY KEY NOT NULL,
-        actor_email text NOT NULL,
-        action text NOT NULL,
-        entity_type text NOT NULL,
-        entity_id text,
-        details text,
-        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
-      )`,
-    ),
-  ]);
+const requiredAuthColumns: Record<string, string[]> = {
+  roles: ["id", "code", "name", "permissions"],
+  app_users: [
+    "id",
+    "username",
+    "email",
+    "display_name",
+    "team_id",
+    "is_assignable",
+    "role_id",
+    "password_hash",
+    "password_salt",
+    "password_changed_at",
+    "status",
+  ],
+  auth_sessions: ["id", "user_id", "token_hash", "expires_at", "revoked_at"],
+  audit_logs: ["id", "actor_email", "action", "entity_type", "created_at"],
+  login_attempts: ["id", "login_key", "ip_hash", "succeeded", "created_at"],
+};
 
-  // Older deployments may already have app_users without local-login fields.
-  // Add only columns that are missing so existing data is preserved.
-  const tableInfo = await db
-    .prepare("PRAGMA table_info('app_users')")
-    .all<{ name: string }>();
-  const columns = new Set(
-    (tableInfo.results || []).map((column) => String(column.name)),
-  );
-  if (!columns.size) {
-    throw new Error("app_users table could not be created");
-  }
+async function assertAuthSchemaReady(db: D1Database) {
+  const missing: string[] = [];
 
-  const missingColumns = [
-    ["username", "ALTER TABLE app_users ADD username text"],
-    ["password_hash", "ALTER TABLE app_users ADD password_hash text"],
-    ["password_salt", "ALTER TABLE app_users ADD password_salt text"],
-    ["team_id", "ALTER TABLE app_users ADD team_id text"],
-    ["is_assignable", "ALTER TABLE app_users ADD is_assignable integer DEFAULT 0 NOT NULL"],
-    [
-      "password_changed_at",
-      "ALTER TABLE app_users ADD password_changed_at text",
-    ],
-  ] as const;
-  for (const [name, sql] of missingColumns) {
-    if (!columns.has(name)) {
-      await db.prepare(sql).run();
+  for (const [tableName, requiredColumns] of Object.entries(requiredAuthColumns)) {
+    const tableInfo = await db
+      .prepare(`PRAGMA table_info('${tableName}')`)
+      .all<{ name: string }>();
+    const columns = new Set(
+      (tableInfo.results || []).map((column) => String(column.name)),
+    );
+
+    if (!columns.size) {
+      missing.push(`${tableName}.*`);
+      continue;
+    }
+
+    for (const columnName of requiredColumns) {
+      if (!columns.has(columnName)) {
+        missing.push(`${tableName}.${columnName}`);
+      }
     }
   }
 
-  await db.batch([
-    db.prepare(
-      `CREATE TABLE IF NOT EXISTS auth_sessions (
-        id text PRIMARY KEY NOT NULL,
-        user_id text NOT NULL,
-        token_hash text NOT NULL,
-        expires_at text NOT NULL,
-        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        last_seen_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        revoked_at text,
-        FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
-      )`,
-    ),
-    db.prepare(
-      "CREATE UNIQUE INDEX IF NOT EXISTS auth_sessions_token_hash_uq ON auth_sessions(token_hash)",
-    ),
-    db.prepare(
-      "CREATE INDEX IF NOT EXISTS auth_sessions_user_expires_idx ON auth_sessions(user_id, expires_at)",
-    ),
-    db.prepare(
-      "CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_uq ON app_users(username)",
-    ),
-    db.prepare(
-      `CREATE TABLE IF NOT EXISTS login_attempts (
-        id text PRIMARY KEY NOT NULL,
-        login_key text NOT NULL,
-        ip_hash text NOT NULL,
-        succeeded integer DEFAULT 0 NOT NULL,
-        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
-      )`,
-    ),
-    db.prepare(
-      "CREATE INDEX IF NOT EXISTS login_attempts_lookup_idx ON login_attempts(login_key, ip_hash, created_at)",
-    ),
-  ]);
+  if (missing.length > 0) {
+    throw new Error(`AUTH_SCHEMA_MISSING:${missing.join(",")}`);
+  }
 }
 
 async function ensureDemoAccounts(db: D1Database) {
-// Always upsert system roles so permission changes are synchronized.
-
+  // Always upsert system roles so permission changes are synchronized.
   const now = new Date().toISOString();
   await db.batch([
     ...systemRoles.map((role) =>
@@ -527,9 +459,9 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
     return json({ message: "不支援此操作。" }, 405);
   }
   try {
-    await ensureAuthSchema(db);
+    await assertAuthSchemaReady(db);
   } catch (error) {
-    console.error("Auth schema initialization failed", error);
+    console.error("Auth schema readiness check failed", error);
     throw new Error("AUTH_SCHEMA", { cause: error });
   }
   if (allowDemoAccounts) {
