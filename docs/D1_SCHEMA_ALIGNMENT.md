@@ -4,7 +4,9 @@ This branch repairs drift between `db/schema.ts` and the currently observed remo
 
 ## Observed Remote D1 State
 
-The remote D1 database already contains these `app_users` columns:
+The remote D1 database has already applied migrations through `0008_security_hardening.sql`.
+
+It already contains these `app_users` columns:
 
 - `username`
 - `team_id`
@@ -21,11 +23,13 @@ It also already contains these `tickets` columns:
 - `assignment_source`
 - `assigned_at`
 
+It already has `survey_responses_system_user_uq`, so the new migration keeps the index creation idempotent.
+
 Because SQLite/D1 does not support `ALTER TABLE ADD COLUMN IF NOT EXISTS`, the production migration intentionally does not re-add those columns.
 
 ## What Changed
 
-- `drizzle/0004_schema_alignment.sql` creates `support_teams`, seeds default teams, backfills existing `app_users` and `tickets`, creates `login_attempts`, and replaces the legacy survey daily unique index with the current `system_usage` per-user rule.
+- `drizzle/0009_remote_schema_alignment.sql` creates `support_teams`, seeds default teams, backfills existing `app_users` and `tickets`, creates `login_attempts`, and keeps survey unique-index behavior aligned with the current `system_usage` per-user rule.
 - `db/schema.ts` now includes `login_attempts` so rate-limit storage is part of the formal schema.
 
 ## Preflight Checks For Existing D1 Databases
