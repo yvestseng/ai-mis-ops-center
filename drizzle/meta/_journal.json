@@ -85,6 +85,13 @@
       "when": 1785750000000,
       "tag": "0010_account_password_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785760000000,
+      "tag": "0011_disable_demo_accounts",
+      "breakpoints": true
     }
   ]
 }
