@@ -1,29 +1,10 @@
 # D1 Schema Alignment Rollout
 
-This branch repairs drift between the committed Drizzle migrations, `db/schema.ts`, and the Worker runtime SQL used by authentication, tickets, and admin APIs.
+This branch repairs drift between `db/schema.ts` and the currently observed remote D1 database used by the Worker authentication, tickets, and admin APIs.
 
-## What Changed
+## Observed Remote D1 State
 
-- `drizzle/0003_rainy_komodo.sql` now adds the authentication columns to `app_users` before creating `app_users_username_uq`.
-- `drizzle/0004_schema_alignment.sql` creates `support_teams`, adds ticket assignment columns, creates `login_attempts`, and replaces the legacy survey daily unique index with the current `system_usage` per-user rule.
-- `db/schema.ts` now includes `login_attempts` so rate-limit storage is part of the formal schema.
-
-## Preflight Checks For Existing D1 Databases
-
-Before applying this to an existing remote D1 database, check whether the runtime compatibility code has already added any columns:
-
-```sql
-PRAGMA table_info('app_users');
-PRAGMA table_info('tickets');
-PRAGMA index_list('survey_responses');
-SELECT id, name, applied_at FROM d1_migrations ORDER BY id;
-```
-
-The normal path is safe for databases that have only applied the committed migrations. If an existing database already has some of the columns added manually or by runtime repair, reconcile that database before applying the migration because SQLite/D1 does not support `ALTER TABLE ADD COLUMN IF NOT EXISTS`.
-
-## Expected Post-Migration Shape
-
-`app_users` should include:
+The remote D1 database already contains these `app_users` columns:
 
 - `username`
 - `team_id`
@@ -32,7 +13,7 @@ The normal path is safe for databases that have only applied the committed migra
 - `password_salt`
 - `password_changed_at`
 
-`tickets` should include:
+It also already contains these `tickets` columns:
 
 - `assigned_team_id`
 - `assigned_user_id`
@@ -40,11 +21,42 @@ The normal path is safe for databases that have only applied the committed migra
 - `assignment_source`
 - `assigned_at`
 
-The database should also include:
+Because SQLite/D1 does not support `ALTER TABLE ADD COLUMN IF NOT EXISTS`, the production migration intentionally does not re-add those columns.
+
+## What Changed
+
+- `drizzle/0004_schema_alignment.sql` creates `support_teams`, seeds default teams, backfills existing `app_users` and `tickets`, creates `login_attempts`, and replaces the legacy survey daily unique index with the current `system_usage` per-user rule.
+- `db/schema.ts` now includes `login_attempts` so rate-limit storage is part of the formal schema.
+
+## Preflight Checks For Existing D1 Databases
+
+Before applying this to an existing remote D1 database, run each query separately in the D1 console:
+
+```sql
+PRAGMA table_info('app_users');
+```
+
+```sql
+PRAGMA table_info('tickets');
+```
+
+```sql
+PRAGMA index_list('survey_responses');
+```
+
+```sql
+SELECT id, name, applied_at FROM d1_migrations ORDER BY id;
+```
+
+## Expected Post-Migration Shape
+
+The database should include:
 
 - `support_teams`
 - `login_attempts`
 - `survey_responses_system_user_uq`
+
+Existing `app_users` rows with empty `username` should be backfilled. Existing non-user `app_users` and unassigned tickets should be associated with the default `team-service-desk` support team when no better legacy team mapping is available.
 
 ## Follow-Up
 
