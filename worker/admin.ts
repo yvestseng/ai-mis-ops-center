@@ -125,14 +125,14 @@ async function createUser(
     !/^[a-z0-9][a-z0-9._-]{2,79}$/.test(username) ||
     !email.includes("@") ||
     !displayName ||
-    password.length < 12 ||
+    password.length < 8 ||
     !/[a-z]/.test(password) ||
     !/[A-Z]/.test(password) ||
     !/\d/.test(password) ||
     !/[^A-Za-z0-9]/.test(password)
   ) {
     return json(
-      { message: "請填寫有效帳號、姓名、信箱，以及至少 12 碼，且包含英文大小寫字母、數字與特殊符號的初始密碼。" },
+      { message: "請填寫有效帳號、姓名、信箱，以及至少 8 碼，且包含英文大小寫字母、數字與特殊符號的初始密碼。" },
       400,
     );
   }
@@ -291,13 +291,13 @@ async function update(
           : 0;
     if (
       newPassword &&
-      (newPassword.length < 12 ||
+      (newPassword.length < 8 ||
         !/[a-z]/.test(newPassword) ||
         !/[A-Z]/.test(newPassword) ||
         !/\d/.test(newPassword) ||
         !/[^A-Za-z0-9]/.test(newPassword))
     ) {
-      return json({ message: "新密碼至少 12 碼，且必須包含英文大小寫字母、數字與特殊符號。" }, 400);
+      return json({ message: "新密碼至少 8 碼，且必須包含英文大小寫字母、數字與特殊符號。" }, 400);
     }
     if (
       newUsername &&

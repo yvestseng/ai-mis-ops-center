@@ -8,7 +8,7 @@
 - 登入失敗限制：同帳號及來源 15 分鐘內失敗 5 次，暫停登入 15 分鐘。
 - 正式環境 `AUTH_ALLOW_DEMO=false`，不再自動建立 Demo 帳號。
 - 本機 Vite 開發預設允許 Demo；登入頁需使用 `?demo=1` 才顯示快速測試帳號。
-- 新增及重設密碼改為至少 12 碼，包含大小寫字母、數字與特殊符號。
+- 新增及重設密碼改為至少 8 碼，包含大小寫字母、數字與特殊符號。
 - 密碼變更、角色變更或帳號狀態變更時撤銷該帳號所有 Session。
 - 新增 `0008_security_hardening.sql` migration。
 - 補回完整建置設定：package、TypeScript、Vite、Wrangler、ESLint、PostCSS、Next、Drizzle。
