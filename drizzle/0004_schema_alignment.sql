@@ -21,13 +21,6 @@ VALUES
 ('team-security','SECURITY','資安監控組','資安事件監控、弱點追蹤與資安治理',30,1),
 ('team-applications','APPLICATIONS','應用系統組','企業內部系統、ERP 與 SaaS 服務維運',40,1);
 --> statement-breakpoint
-ALTER TABLE `app_users` ADD `username` text;--> statement-breakpoint
-ALTER TABLE `app_users` ADD `team_id` text;--> statement-breakpoint
-ALTER TABLE `app_users` ADD `is_assignable` integer DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE `app_users` ADD `password_hash` text;--> statement-breakpoint
-ALTER TABLE `app_users` ADD `password_salt` text;--> statement-breakpoint
-ALTER TABLE `app_users` ADD `password_changed_at` text;--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS `app_users_username_uq` ON `app_users` (`username`);--> statement-breakpoint
 UPDATE `app_users`
 SET `username` = CASE
   WHEN `id` = 'user-owner' THEN 'tw_yves'
