@@ -13,3 +13,8 @@ coverage/
 drizzle-recovered/
 
 site-creator-d1-*.sql
+
+# Local environment secrets
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
