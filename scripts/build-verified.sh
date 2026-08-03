@@ -8,8 +8,6 @@ npx vinext build
 
 echo "vinext build completed successfully."
 
-# ChatGPT Sites/OpenAI Hosting 才需要 hosting.json。
-# Cloudflare Workers 部署不需要此檔案。
 if [[ "${DEPLOY_TARGET:-cloudflare}" == "openai-sites" ]]; then
   manifest="dist/.openai/hosting.json"
 
