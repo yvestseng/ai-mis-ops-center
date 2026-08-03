@@ -66,6 +66,7 @@ export const appUsers = sqliteTable(
     passwordHash: text("password_hash"),
     passwordSalt: text("password_salt"),
     passwordChangedAt: text("password_changed_at"),
+    mustChangePassword: integer("must_change_password", { mode: "boolean" }).default(false).notNull(),
     status: text().default("active").notNull(),
     lastLoginAt: text("last_login_at"),
     createdAt: text("created_at")
