@@ -31,10 +31,59 @@
       "breakpoints": true
     },
     {
+      "idx": 4,
+      "version": "6",
+      "when": 1785200000000,
+      "tag": "0004_ticket_rating_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785300000000,
+      "tag": "0005_fix_survey_role_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785400000000,
+      "tag": "0006_support_team_assignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785450000000,
+      "tag": "0006b_support_team_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785500000000,
+      "tag": "0007_system_usage_single_submission",
+      "breakpoints": true
+    },
+    {
       "idx": 9,
+      "version": "6",
+      "when": 1785600000000,
+      "tag": "0008_security_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
       "version": "6",
       "when": 1785720000000,
       "tag": "0009_remote_schema_alignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785750000000,
+      "tag": "0010_account_password_lifecycle",
       "breakpoints": true
     }
   ]

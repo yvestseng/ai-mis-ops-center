@@ -8,6 +8,10 @@ CREATE TABLE IF NOT EXISTS `app_users` (
 	`last_login_at` text,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`username` text,
+	`password_hash` text,
+	`password_salt` text,
+	`password_changed_at` text,
 	FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint

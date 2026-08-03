@@ -1117,6 +1117,34 @@ function LoginScreen({
   </main>;
 }
 
+function ChangePasswordScreen({ onCompleted }: { onCompleted: (message: string) => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) return setMessage("兩次輸入的新密碼不一致。");
+    setLoading(true); setMessage("");
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST", credentials: "include", cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message || "密碼變更失敗。");
+      onCompleted(result.message || "密碼已變更，請重新登入。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "密碼變更失敗。");
+    } finally { setLoading(false); }
+  }
+
+  return <main className="login-page"><section className="login-intro"><div className="login-brand"><span className="brandmark">A</span><span><strong>AI 資訊報修</strong><small>MIS 維運／資安監控中心</small></span></div></section><section className="login-panel"><div className="login-card"><span className="login-shield">!</span><div><span className="eyebrow">PASSWORD REQUIRED</span><h2>請先變更初始密碼</h2><p>為保護帳號安全，完成變更後才能使用系統功能。</p></div><form className="login-form" onSubmit={(event) => void submit(event)}><label>目前密碼<input required type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label><label>新密碼<input required type="password" minLength={8} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><label>確認新密碼<input required type="password" minLength={8} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>{message && <div className="login-error" role="alert"><b>無法變更密碼</b><span>{message}</span></div>}<button className="login-submit" disabled={loading}>{loading ? "儲存中…" : "變更密碼並重新登入"}</button></form></div></section></main>;
+}
+
 export default function Home() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [session, setSession] = useState<SessionUser | null>(null);
@@ -1568,6 +1596,9 @@ export default function Home() {
         ? "我的工單"
         : "營運總覽",
     );
+  }} />;
+  if (session?.mustChangePassword) return <ChangePasswordScreen onCompleted={(message) => {
+    setSession(null); setAuthenticated(false); setAuthIssue(message);
   }} />;
 
   return (

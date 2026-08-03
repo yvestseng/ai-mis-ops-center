@@ -567,14 +567,12 @@ export function handleSurveyRequest(
     if (request.method === "POST") {
       const auth = await requireIdentity(request, db);
       if (!auth.identity) return auth.response!;
-      if (auth.response) return auth.response;
       return createSurvey(request, db, auth.identity);
     }
 
     if (request.method === "GET") {
       const auth = await requireIdentity(request, db);
       if (!auth.identity) return auth.response!;
-      if (auth.response) return auth.response;
       const ticketReference = new URL(request.url).searchParams.get("ticketReference");
       return ticketReference
         ? getServiceSurveyTicket(request, db, auth.identity)

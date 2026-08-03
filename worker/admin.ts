@@ -42,6 +42,7 @@ async function list(entity: Entity, db: D1Database) {
                    u.is_assignable AS isAssignable,
                    u.status, u.last_login_at AS lastLoginAt,
                    CASE WHEN u.password_hash IS NULL THEN 0 ELSE 1 END AS hasPassword,
+                   u.must_change_password AS mustChangePassword,
                    u.role_id AS roleId, r.name AS roleName, r.code AS roleCode
             FROM app_users u
             JOIN roles r ON r.id = u.role_id
@@ -138,15 +139,23 @@ async function createUser(
   }
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const existing = await db.prepare("SELECT username, email FROM app_users WHERE username = ? OR email = ?").bind(username, email).first();
+  if (existing) return json({ error: "USER_ALREADY_EXISTS", message: "登入帳號或電子郵件已被使用。" }, 409);
+  const role = await db.prepare("SELECT id FROM roles WHERE id = ?").bind(roleId).first();
+  if (!role) return json({ error: "ROLE_NOT_FOUND", message: "指定角色不存在，請重新整理後再試。" }, 400);
+  if (teamId) {
+    const team = await db.prepare("SELECT id FROM support_teams WHERE id = ? AND is_active = 1").bind(teamId).first();
+    if (!team) return json({ error: "TEAM_NOT_FOUND", message: "指定維運團隊不存在或已停用。" }, 400);
+  }
   const passwordRecord = await createPasswordRecord(password);
   try {
     await db
       .prepare(
         `INSERT INTO app_users
           (id, username, email, display_name, department, team_id, is_assignable, role_id,
-           password_hash, password_salt, password_changed_at,
+           password_hash, password_salt, password_changed_at, must_change_password,
            status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)`,
       )
       .bind(
         id,
@@ -177,8 +186,9 @@ async function createUser(
       },
       201,
     );
-  } catch {
-    return json({ message: "帳號已存在，或指定角色無效。" }, 409);
+  } catch (error) {
+    console.error("Create user failed", error);
+    return json({ error: "USER_CREATE_FAILED", message: "建立使用者失敗，請確認 D1 migration 已完成後再試。" }, 500);
   }
 }
 
@@ -321,7 +331,7 @@ async function update(
                  role_id = COALESCE(NULLIF(?, ''), role_id),
                  status = COALESCE(NULLIF(?, ''), status),
                  password_hash = ?, password_salt = ?,
-                 password_changed_at = ?, updated_at = ?
+                 password_changed_at = ?, must_change_password = 1, updated_at = ?
              WHERE id = ?`,
           )
           .bind(
@@ -497,7 +507,9 @@ async function remove(
 }
 
 export async function handleSessionRequest(request: Request, db: D1Database) {
-  const result = await requireIdentity(request, db);
+  // This endpoint only exposes identity data so a new account can be routed
+  // to the password-change screen; all other protected APIs remain blocked.
+  const result = await requireIdentity(request, db, { allowPasswordChange: true });
   if (!result.identity) return result.response!;
   return json({ user: result.identity });
 }

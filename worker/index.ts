@@ -6,7 +6,7 @@ import { handleTicketRequest } from "./tickets";
 import { handleAdminRequest, handleSessionRequest } from "./admin";
 import { handleDashboardRequest } from "./dashboard";
 import { handleSupportTeamRequest } from "./support-teams";
-import { handleLoginRequest, handleLogoutRequest } from "./auth";
+import { handleChangePasswordRequest, handleLoginRequest, handleLogoutRequest } from "./auth";
 import { securityHeaders, validateApiRequest } from "./security";
 
 interface Env {
@@ -77,6 +77,10 @@ const worker = {
 
     if (url.pathname === "/api/auth/logout") {
       return respond(handleLogoutRequest(request, env.DB));
+    }
+
+    if (url.pathname === "/api/auth/change-password") {
+      return respond(handleChangePasswordRequest(request, env.DB));
     }
 
     if (url.pathname === "/api/dashboard") {

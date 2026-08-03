@@ -29,6 +29,7 @@ export type Identity = {
   permissions: Permission[];
   teamId: string | null;
   isAssignable: boolean;
+  mustChangePassword: boolean;
 };
 
 type PasswordRecord = {
@@ -213,6 +214,7 @@ const requiredAuthColumns: Record<string, string[]> = {
     "password_hash",
     "password_salt",
     "password_changed_at",
+    "must_change_password",
     "status",
   ],
   auth_sessions: ["id", "user_id", "token_hash", "expires_at", "revoked_at"],
@@ -326,6 +328,7 @@ function toIdentity(row: Record<string, string | null>): Identity {
     department: row.department ? String(row.department) : null,
     teamId: row.teamId ? String(row.teamId) : null,
     isAssignable: Number(row.isAssignable || 0) === 1,
+    mustChangePassword: Number(row.mustChangePassword || 0) === 1,
     roleId: String(row.roleId),
     roleCode: String(row.roleCode),
     roleName: String(row.roleName),
@@ -344,7 +347,7 @@ export async function getIdentity(
   const row = await db
     .prepare(
       `SELECT u.id, u.username, u.email, u.display_name AS displayName,
-              u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.role_id AS roleId,
+              u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.must_change_password AS mustChangePassword, u.role_id AS roleId,
               r.code AS roleCode, r.name AS roleName, r.permissions
        FROM auth_sessions s
        JOIN app_users u ON u.id = s.user_id
@@ -363,13 +366,14 @@ export async function getIdentity(
 }
 
 export function hasPermission(identity: Identity, permission: Permission) {
-  return (
-    identity.roleCode === "admin" ||
-    identity.permissions.includes(permission)
-  );
+  return identity.permissions.includes(permission);
 }
 
-export async function requireIdentity(request: Request, db: D1Database) {
+export async function requireIdentity(
+  request: Request,
+  db: D1Database,
+  options: { allowPasswordChange?: boolean } = {},
+) {
   const identity = await getIdentity(request, db);
   if (!identity) {
     return {
@@ -377,6 +381,15 @@ export async function requireIdentity(request: Request, db: D1Database) {
       response: json(
         { error: "UNAUTHORIZED", message: "登入已失效，請重新登入。" },
         401,
+      ),
+    };
+  }
+  if (identity.mustChangePassword && !options.allowPasswordChange) {
+    return {
+      identity,
+      response: json(
+        { error: "PASSWORD_CHANGE_REQUIRED", message: "首次登入後必須先變更密碼。" },
+        403,
       ),
     };
   }
@@ -496,7 +509,7 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
     row = await db
       .prepare(
         `SELECT u.id, u.username, u.email, u.display_name AS displayName,
-                u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.role_id AS roleId, u.password_hash AS passwordHash,
+                u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.must_change_password AS mustChangePassword, u.role_id AS roleId, u.password_hash AS passwordHash,
                 u.password_salt AS passwordSalt,
                 r.code AS roleCode, r.name AS roleName, r.permissions
          FROM app_users u JOIN roles r ON r.id = u.role_id
@@ -618,6 +631,35 @@ export async function handleLogoutRequest(request: Request, db: D1Database) {
     200,
     { "set-cookie": sessionCookie(request, "", 0) },
   );
+}
+
+export async function handleChangePasswordRequest(request: Request, db: D1Database) {
+  if (request.method !== "POST") return json({ message: "不支援此操作。" }, 405);
+  const identityResult = await requireIdentity(request, db, { allowPasswordChange: true });
+  if (!identityResult.identity) return identityResult.response!;
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return json({ message: "資料格式不正確。" }, 400);
+  }
+  const currentPassword = clean(payload.currentPassword, 200);
+  const newPassword = clean(payload.newPassword, 200);
+  if (!currentPassword || newPassword.length < 8 || !/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/\d/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
+    return json({ error: "PASSWORD_POLICY", message: "新密碼至少 8 碼，且必須包含英文大小寫字母、數字與特殊符號。" }, 400);
+  }
+  if (currentPassword === newPassword) return json({ error: "PASSWORD_REUSED", message: "新密碼不可與目前密碼相同。" }, 400);
+  const account = await db.prepare("SELECT password_hash AS passwordHash, password_salt AS passwordSalt FROM app_users WHERE id = ? AND status = 'active'").bind(identityResult.identity.id).first<{ passwordHash: string | null; passwordSalt: string | null }>();
+  if (!account?.passwordHash || !account.passwordSalt || !(await verifyPassword(currentPassword, account.passwordHash, account.passwordSalt))) {
+    return json({ error: "CURRENT_PASSWORD_INVALID", message: "目前密碼不正確。" }, 400);
+  }
+  const record = await createPasswordRecord(newPassword);
+  await db.batch([
+    db.prepare("UPDATE app_users SET password_hash=?, password_salt=?, password_changed_at=?, must_change_password=0, updated_at=? WHERE id=?").bind(record.passwordHash, record.passwordSalt, new Date().toISOString(), new Date().toISOString(), identityResult.identity.id),
+    db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(identityResult.identity.id),
+  ]);
+  await audit(db, identityResult.identity, "change_password", "user", identityResult.identity.id);
+  return json({ ok: true, message: "密碼已變更，請使用新密碼重新登入。" }, 200, { "set-cookie": sessionCookie(request, "", 0) });
 }
 
 export async function audit(
