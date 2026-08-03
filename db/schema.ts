@@ -140,6 +140,26 @@ export const authSessions = sqliteTable(
   ],
 );
 
+export const loginAttempts = sqliteTable(
+  "login_attempts",
+  {
+    id: text().primaryKey().notNull(),
+    loginKey: text("login_key").notNull(),
+    ipHash: text("ip_hash").notNull(),
+    succeeded: integer("succeeded", { mode: "boolean" }).default(false).notNull(),
+    createdAt: text("created_at")
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+  },
+  (table) => [
+    index("login_attempts_lookup_idx").on(
+      table.loginKey,
+      table.ipHash,
+      table.createdAt,
+    ),
+  ],
+);
+
 export const surveyResponses = sqliteTable(
   "survey_responses",
   {
@@ -228,9 +248,7 @@ export const surveyFollowups = sqliteTable(
     index("survey_followups_status_idx").on(
       table.status,
     ),
-    uniqueIndex("survey_followups_response_uq").on(
-      table.responseId,
-    ),
+    uniqueIndex("survey_followups_response_uq").on(table.responseId),
   ],
 );
 
@@ -330,9 +348,7 @@ export const assets = sqliteTable(
       table.assetType,
       table.status,
     ),
-    uniqueIndex("assets_asset_tag_uq").on(
-      table.assetTag,
-    ),
+    uniqueIndex("assets_asset_tag_uq").on(table.assetTag),
   ],
 );
 
@@ -359,8 +375,6 @@ export const managedServices = sqliteTable(
     index("managed_services_status_idx").on(
       table.status,
     ),
-    uniqueIndex("managed_services_name_uq").on(
-      table.name,
-    ),
+    uniqueIndex("managed_services_name_uq").on(table.name),
   ],
 );
