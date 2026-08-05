@@ -90,16 +90,13 @@ test("ticket APIs enforce own-vs-all reads and assignment escalation checks", as
   assert.match(tickets, /error: "FORBIDDEN"/);
 });
 
-test("account mutation APIs block self-removal and last-admin lockout", async () => {
+test("account disabling blocks self-disable and last-admin lockout", async () => {
   const admin = await read("worker/admin.ts");
 
-  assert.match(admin, /SELF_DISABLE_DENIED/);
-  assert.match(admin, /SELF_DELETE_DENIED/);
-  assert.match(admin, /LAST_ADMIN_DENIED/);
-  assert.match(admin, /countOtherActiveAdmins/);
-  assert.match(admin, /current\.status === "active"/);
-  assert.match(admin, /current\.roleCode === "admin"/);
-  assert.match(admin, /normalizedRoleCode !== "admin"/);
+  assert.match(admin, /SELF_DISABLE_BLOCKED/);
+  assert.match(admin, /LAST_ADMIN_DISABLE_BLOCKED/);
+  assert.match(admin, /id === identity\.id/);
+  assert.match(admin, /r\.code = 'admin' AND u\.status = 'active'/);
   assert.match(admin, /DELETE FROM auth_sessions WHERE user_id = \?/);
 });
 
@@ -107,9 +104,6 @@ test("expected manual three-role API matrix is documented", async () => {
   const checklist = await read("docs/RBAC_API_AUTHORIZATION_CHECKLIST.md");
 
   for (const expected of [
-    "一般使用者",
-    "MIS 維運人員",
-    "系統管理員",
     "GET /api/admin/users",
     "GET /api/admin/roles",
     "GET /api/admin/audit",

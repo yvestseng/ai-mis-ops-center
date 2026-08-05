@@ -147,7 +147,7 @@ test("Cloudflare Vite plugin is configured for RSC and SSR", async () => {
   );
 });
 
-test("image and PostCSS lint warnings are eliminated", async () => {
+test("root page redirects to the user login portal without a login form", async () => {
   const [page, postcss] = await Promise.all([
     read("app/page.tsx"),
     read("postcss.config.mjs"),
@@ -155,12 +155,12 @@ test("image and PostCSS lint warnings are eliminated", async () => {
 
   assert.match(
     page,
-    /from ["']next\/image["']/,
+    /window\.location\.replace\(["']\/user\/login["']\)/,
   );
 
   assert.doesNotMatch(
     page,
-    /<img\b/,
+    /<form\b/,
   );
 
   assert.match(
