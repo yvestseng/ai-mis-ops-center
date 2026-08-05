@@ -6,6 +6,7 @@ import { handleTicketRequest } from "./tickets";
 import { handleAdminRequest, handleSessionRequest } from "./admin";
 import { handleDashboardRequest } from "./dashboard";
 import { handleSupportTeamRequest } from "./support-teams";
+import { handlePriorityRuleRequest } from "./priority-rules";
 import { handleChangePasswordRequest, handleLoginRequest, handleLogoutRequest } from "./auth";
 import { securityHeaders, validateApiRequest } from "./security";
 
@@ -54,6 +55,14 @@ const worker = {
     const ticketMatch = url.pathname.match(/^\/api\/tickets\/([^/]+)$/);
     if (ticketMatch) {
       return respond(handleTicketRequest(request, env.DB, ticketMatch[1]));
+    }
+
+    const priorityRuleMatch = url.pathname.match(/^\/api\/admin\/priority-rules(?:\/([^/]+))?$/);
+    if (priorityRuleMatch) {
+      return respond(handlePriorityRuleRequest(request, env.DB, priorityRuleMatch[1]));
+    }
+    if (url.pathname === "/api/ticket-priority-rules") {
+      return respond(handlePriorityRuleRequest(request, env.DB));
     }
 
 
