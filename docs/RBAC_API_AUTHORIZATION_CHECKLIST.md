@@ -57,15 +57,15 @@ curl -i -X PATCH "https://ai-mis-ops-center.amtran.workers.dev/api/tickets/<TICK
 | --- | --- | --- |
 | 未登入 | `GET /api/tickets` | `401` |
 | 一般使用者 | `GET /api/tickets` | `200`, only own tickets in response |
-| 一般使用者 | `GET /api/tickets/:otherUserTicketId` | `404` |
-| 一般使用者 | `PATCH /api/tickets/:ticketId` status update | `403` |
-| 一般使用者 | `PATCH /api/tickets/:ticketId` with `assignedTeamId` or `assignedUserId` | `403` |
+| 一般使用者 | `GET /api/tickets/:id` | `404` |
+| 一般使用者 | `PATCH /api/tickets/:id` status update | `403` |
+| 一般使用者 | `PATCH /api/tickets/:id` with `assignedTeamId` or `assignedUserId` | `403` |
 | MIS 維運人員 | `GET /api/tickets` | `200`, all tickets allowed |
-| MIS 維運人員 | `PATCH /api/tickets/:ticketId` status update | `200` |
-| MIS 維運人員 | `PATCH /api/tickets/:ticketId` with `assignedTeamId` or `assignedUserId` | `200` |
+| MIS 維運人員 | `PATCH /api/tickets/:id` status update | `200` |
+| MIS 維運人員 | `PATCH /api/tickets/:id` with `assignedTeamId` or `assignedUserId` | `200` |
 | 系統管理員 | `GET /api/tickets` | `200`, all tickets allowed |
-| 系統管理員 | `PATCH /api/tickets/:ticketId` status update | `200` |
-| 系統管理員 | `PATCH /api/tickets/:ticketId` with `assignedTeamId` or `assignedUserId` | `200` |
+| 系統管理員 | `PATCH /api/tickets/:id` status update | `200` |
+| 系統管理員 | `PATCH /api/tickets/:id` with `assignedTeamId` or `assignedUserId` | `200` |
 
 ## Account Safety Guards
 

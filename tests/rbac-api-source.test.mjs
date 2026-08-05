@@ -19,7 +19,7 @@ test("admin APIs require server-side permissions for all privileged resources", 
 
   assert.match(
     worker,
-    /\/api\/admin\/(users\|roles\|teams\|assets\|services\|audit)/,
+    /\^\\\/api\\\/admin\\\/\(users\|roles\|teams\|assets\|services\|audit\)/,
   );
   assert.match(admin, /const entityPermission/);
   assert.match(admin, /requirePermission\(request, db, required\)/);
