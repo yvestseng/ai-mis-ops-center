@@ -145,8 +145,24 @@ const defaultRolePermissions: RolePermissions = {
   一般使用者: modules.slice(0, 3),
 };
 
-const HIGH_PRIORITY_PATTERNS = [/core\s*switch/i, /核心交換器/, /fibre\s*port\s*fail/i, /fiber\s*port\s*fail/i, /dump\s*fail/i];
-function requiresPriorityReview(description: string) { return HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(description)); }
+// [MODIFIED: P1 priority review] Critical infrastructure failures require MIS review.
+const HIGH_PRIORITY_PATTERNS = [
+  /core\s*switch/i, /核心交換器/, /core\s*router/i, /核心路由器/,
+  /fibre\s*port\s*fail/i, /fiber\s*port\s*fail/i, /dump\s*fail/i,
+  /網際網路主線中斷/, /對外網路中斷/, /internet\s*(line|link).*?(down|fail)/i,
+  /全公司/, /全廠/, /主要據點/, /大量使用者受影響/,
+];
+const FIREWALL_PATTERN = /firewall|fortigate|palo\s*alto|防火牆/i;
+const SERVER_PATTERN = /server|host|伺服器|主機/i;
+const BOOT_FAILURE_PATTERN = /整體無法開機|無法開機|無法啟動|無法上電|無法運作|power\s*fail|cannot\s*(boot|power\s*on)|won['’]?t\s*boot/i;
+
+function requiresPriorityReview(description: string) {
+  return (
+    HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(description)) ||
+    ((FIREWALL_PATTERN.test(description) || SERVER_PATTERN.test(description)) &&
+      BOOT_FAILURE_PATTERN.test(description))
+  );
+}
 
 function isManagedUser(value: unknown): value is ManagedUser {
   if (!value || typeof value !== "object") return false;
@@ -1210,6 +1226,11 @@ export default function Home() {
   const priorityReviewRequired = requiresPriorityReview(issue);
   const aiResult = useMemo(() => {
     const text = issue.toLowerCase();
+    // [MODIFIED: P1 priority review] Route a firewall boot failure to Security,
+    // while other critical infrastructure incidents continue to Network Operations.
+    if (FIREWALL_PATTERN.test(issue) && BOOT_FAILURE_PATTERN.test(issue)) {
+      return { category: "資訊安全", priority: "高", team: "資安管理組", teamId: "team-security" };
+    }
     if (requiresPriorityReview(issue)) return { category: "網路連線", priority: "高", team: "網路維運組", teamId: "team-network" };
     if (/oracle|mysql|sql server|資料庫|db client/.test(text)) {
       return { category: "軟體安裝", priority: "中", team: "資料庫管理組", teamId: "team-database" };

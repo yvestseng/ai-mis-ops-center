@@ -55,14 +55,25 @@ function validEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+// [MODIFIED: P1 priority review] Keep this server-side rule authoritative.
+// The client uses the same criteria only to provide immediate UI guidance.
 const HIGH_PRIORITY_PATTERNS = [
-  /core\s*switch/i, /核心交換器/, /fibre\s*port\s*fail/i,
-  /fiber\s*port\s*fail/i, /dump\s*fail/i,
+  /core\s*switch/i, /核心交換器/, /core\s*router/i, /核心路由器/,
+  /fibre\s*port\s*fail/i, /fiber\s*port\s*fail/i, /dump\s*fail/i,
+  /網際網路主線中斷/, /對外網路中斷/, /internet\s*(line|link).*?(down|fail)/i,
+  /全公司/, /全廠/, /主要據點/, /大量使用者受影響/,
 ];
+const FIREWALL_PATTERN = /firewall|fortigate|palo\s*alto|防火牆/i;
+const SERVER_PATTERN = /server|host|伺服器|主機/i;
+const BOOT_FAILURE_PATTERN = /整體無法開機|無法開機|無法啟動|無法上電|無法運作|power\s*fail|cannot\s*(boot|power\s*on)|won['’]?t\s*boot/i;
 
 function requiresPriorityReview(title: string, description: string) {
   const content = `${title} ${description}`;
-  return HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(content));
+  return (
+    HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(content)) ||
+    ((FIREWALL_PATTERN.test(content) || SERVER_PATTERN.test(content)) &&
+      BOOT_FAILURE_PATTERN.test(content))
+  );
 }
 
 async function createTicket(
