@@ -295,6 +295,10 @@
 .inline-switch { display:inline-flex; align-items:center; gap:8px; font-weight:700; }
 .inline-switch input { width:18px; height:18px; }
 .data-table code { font-size:12px; padding:4px 7px; border-radius:6px; background:#eef4ff; color:#165dcc; }
+.row-actions .account-status-action { width:auto; min-width:68px; padding:0 10px; font-size:10px; font-weight:800; }
+.row-actions .account-status-action.enable { border-color:#9fe0bd; background:#effcf4; color:#087443; }
+.row-actions .account-status-action.disable { border-color:#ffd19b; background:#fff7ed; color:#b54708; }
+.row-actions .account-status-action:disabled,.row-actions button:disabled { cursor:not-allowed; opacity:.58; }
 .governance-tabs { flex-wrap:wrap; }
 
 /* 2026 light cyber command-center visual refresh */
