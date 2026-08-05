@@ -1,6 +1,7 @@
 import { audit, json, requireIdentity, requirePermission, type Identity } from "./auth";
 
 type RulePayload = Record<string, unknown>;
+type PriorityRuleDbRow = Record<string, unknown>;
 
 function clean(value: unknown, max = 200) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
 function cleanTerms(value: unknown) {
@@ -10,6 +11,21 @@ function cleanTerms(value: unknown) {
 function bool(value: unknown) { return value === true || value === 1 || value === "true" || value === "1"; }
 async function payload(request: Request): Promise<RulePayload | null> { try { return await request.json() as RulePayload; } catch { return null; } }
 
+// [MODIFIED: lint-safe D1 row parsing]
+// D1 returns untyped row values. Validate the JSON columns before returning them
+// so an invalid stored value cannot break the rule-management page.
+function parseTerms(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((term): term is string => typeof term === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 async function list(db: D1Database) {
   const result = await db.prepare(`SELECT id, rule_name AS ruleName, description,
     match_all_terms AS matchAllTerms, match_any_terms AS matchAnyTerms, priority, category,
@@ -18,8 +34,15 @@ async function list(db: D1Database) {
     is_active AS isActive, created_at AS createdAt, created_by AS createdBy,
     updated_at AS updatedAt, updated_by AS updatedBy
     FROM ticket_priority_rules ORDER BY display_order, rule_name`).all();
-  return json({ rules: (result.results || []).map((rule: any) => ({ ...rule,
-    matchAllTerms: JSON.parse(rule.matchAllTerms || "[]"), matchAnyTerms: JSON.parse(rule.matchAnyTerms || "[]") })) });
+  const rules = (result.results ?? []).map((row) => {
+    const rule = row as PriorityRuleDbRow;
+    return {
+      ...rule,
+      matchAllTerms: parseTerms(rule.matchAllTerms),
+      matchAnyTerms: parseTerms(rule.matchAnyTerms),
+    };
+  });
+  return json({ rules });
 }
 function validate(data: RulePayload) {
   const ruleName = clean(data.ruleName, 100); const priority = clean(data.priority, 10);
