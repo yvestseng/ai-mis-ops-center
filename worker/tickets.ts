@@ -16,6 +16,10 @@ type TicketPayload = {
   description?: unknown;
   category?: unknown;
   priority?: unknown;
+  serviceInterruption?: unknown;
+  impactScope?: unknown;
+  priorityReviewRequired?: unknown;
+  priorityConfirmed?: unknown;
   source?: unknown;
   location?: unknown;
   assetTag?: unknown;
@@ -51,6 +55,16 @@ function validEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+const HIGH_PRIORITY_PATTERNS = [
+  /core\s*switch/i, /核心交換器/, /fibre\s*port\s*fail/i,
+  /fiber\s*port\s*fail/i, /dump\s*fail/i,
+];
+
+function requiresPriorityReview(title: string, description: string) {
+  const content = `${title} ${description}`;
+  return HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(content));
+}
+
 async function createTicket(
   request: Request,
   db: D1Database,
@@ -72,23 +86,29 @@ async function createTicket(
   const description = textValue(payload.description, 3000);
   const category = textValue(payload.category, 40) || "其他";
   const priority = textValue(payload.priority, 10);
+  const serviceInterruption = textValue(payload.serviceInterruption, 30) || null;
+  const impactScope = textValue(payload.impactScope, 300) || null;
   const source = textValue(payload.source, 30) || "AI 報修";
   const location = textValue(payload.location, 120) || null;
   const assetTag = textValue(payload.assetTag, 80) || null;
   const assignedTeam = textValue(payload.assignedTeam, 80) || "MIS 服務台";
 
+  const priorityReviewRequired = requiresPriorityReview(title, description);
   if (
     !requesterToken ||
     !requesterName ||
     !validEmail(requesterEmail) ||
     title.length < 4 ||
     description.length < 10 ||
-    !["緊急", "高", "中", "低"].includes(priority)
+    !["緊急", "高", "中", "低"].includes(priority) ||
+    (priorityReviewRequired && (!serviceInterruption || !impactScope))
   ) {
     return json(
       {
         error: "INVALID_TICKET",
-        message: "請完整填寫申請人、信箱、部門、標題及至少 10 字的問題描述。",
+        message: priorityReviewRequired
+          ? "偵測到核心設備風險，請填寫服務中斷狀況與影響範圍。"
+          : "請完整填寫申請人、信箱、部門、標題及至少 10 字的問題描述。",
       },
       400,
     );
@@ -106,9 +126,10 @@ async function createTicket(
         .prepare(
           `INSERT INTO tickets
             (id, ticket_number, requester_hash, requester_name, requester_email,
-             department, title, description, category, priority, source,
+             department, title, description, category, priority, priority_suggestion,
+             priority_review_required, service_interruption, impact_scope, source,
              location, asset_tag, assigned_team, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '待處理', ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '待處理', ?, ?)`,
         )
         .bind(
           id,
@@ -120,7 +141,11 @@ async function createTicket(
           title,
           description,
           category,
-          priority,
+          priorityReviewRequired ? "高" : priority,
+          priorityReviewRequired ? "高" : null,
+          priorityReviewRequired ? 1 : 0,
+          serviceInterruption,
+          impactScope,
           source,
           location,
           assetTag,
@@ -139,6 +164,7 @@ async function createTicket(
     await audit(db, identity, "create", "ticket", id, {
       ticketNumber: number,
       priority,
+      priorityReviewRequired,
     });
   } catch (error) {
     console.error("ticket insert failed", error);
@@ -160,7 +186,11 @@ async function createTicket(
         title,
         description,
         category,
-        priority,
+        priority: priorityReviewRequired ? "高" : priority,
+        prioritySuggestion: priorityReviewRequired ? "高" : null,
+        priorityReviewRequired,
+        serviceInterruption,
+        impactScope,
         source,
         location,
         assetTag,
@@ -170,7 +200,9 @@ async function createTicket(
         createdAt: now,
         updatedAt: now,
       },
-      message: `工單 ${number} 已建立並指派給 ${assignedTeam}。`,
+      message: priorityReviewRequired
+        ? `工單 ${number} 已建立：系統建議高優先，待 MIS 確認。`
+        : `工單 ${number} 已建立並指派給 ${assignedTeam}。`,
     },
     201,
   );
@@ -194,6 +226,12 @@ async function listTickets(
               t.description,
               t.category,
               t.priority,
+              t.priority_suggestion AS prioritySuggestion,
+              t.priority_review_required AS priorityReviewRequired,
+              t.priority_confirmed_by AS priorityConfirmedBy,
+              t.priority_confirmed_at AS priorityConfirmedAt,
+              t.service_interruption AS serviceInterruption,
+              t.impact_scope AS impactScope,
               t.source,
               t.location,
               t.asset_tag AS assetTag,
@@ -251,6 +289,12 @@ async function getTicket(
                 t.description,
                 t.category,
                 t.priority,
+                t.priority_suggestion AS prioritySuggestion,
+                t.priority_review_required AS priorityReviewRequired,
+                t.priority_confirmed_by AS priorityConfirmedBy,
+                t.priority_confirmed_at AS priorityConfirmedAt,
+                t.service_interruption AS serviceInterruption,
+                t.impact_scope AS impactScope,
                 t.source,
                 t.location,
                 t.asset_tag AS assetTag,
@@ -319,6 +363,7 @@ async function updateTicket(
   }
 
   const nextStatus = textValue(payload.status, 20);
+  const confirmedPriority = textValue(payload.priorityConfirmed, 10);
   const note = textValue(payload.note, 1000);
   const actorName = identity.displayName;
   const allowedStatuses = ["待處理", "處理中", "已解決", "已結案"];
@@ -330,9 +375,17 @@ async function updateTicket(
     );
   }
 
+  if (confirmedPriority && !["緊急", "高", "中", "低"].includes(confirmedPriority)) {
+    return json({ error: "INVALID_PRIORITY", message: "優先級確認值不正確。" }, 400);
+  }
+
   const current = await db
     .prepare(
       `SELECT status,
+              priority,
+              priority_review_required AS priorityReviewRequired,
+              priority_confirmed_by AS priorityConfirmedBy,
+              priority_confirmed_at AS priorityConfirmedAt,
               assigned_team AS assignedTeam,
               assigned_team_id AS assignedTeamId,
               assigned_user_id AS assignedUserId,
@@ -344,6 +397,10 @@ async function updateTicket(
     .bind(id)
     .first<{
       status: string;
+      priority: string;
+      priorityReviewRequired: number;
+      priorityConfirmedBy: string | null;
+      priorityConfirmedAt: string | null;
       assignedTeam: string | null;
       assignedTeamId: string | null;
       assignedUserId: string | null;
@@ -354,6 +411,11 @@ async function updateTicket(
   if (!current) {
     return json({ error: "NOT_FOUND", message: "找不到此工單。" }, 404);
   }
+
+  if (confirmedPriority && !hasPermission(identity, "tickets.update")) {
+    return json({ error: "FORBIDDEN", message: "您沒有確認工單優先級的權限。" }, 403);
+  }
+  if (confirmedPriority && !current.priorityReviewRequired) return json({ error: "PRIORITY_ALREADY_CONFIRMED", message: "此工單的優先級已完成確認。" }, 400);
 
   const hasAssignedTeamField = Object.prototype.hasOwnProperty.call(
     payload,
@@ -500,8 +562,7 @@ async function updateTicket(
     nextAssignedAt = now;
   }
 
-  const eventType =
-    assignmentChanged && !statusChanged ? "assignment_changed" : "status_changed";
+  const eventType = confirmedPriority ? "priority_confirmed" : assignmentChanged && !statusChanged ? "assignment_changed" : "status_changed";
 
   const assignmentDescription = assignmentChanged
     ? nextAssignedUserId
@@ -509,9 +570,7 @@ async function updateTicket(
       : "；已取消實際處理人員指派"
     : "";
 
-  const eventNote =
-    note ||
-    `狀態由${current.status}更新為${nextStatus}${assignmentDescription}。`;
+  const eventNote = note || (confirmedPriority ? `MIS 已將優先級確認為${confirmedPriority}。` : `狀態由${current.status}更新為${nextStatus}${assignmentDescription}。`);
 
   try {
     await db.batch([
@@ -519,6 +578,10 @@ async function updateTicket(
         .prepare(
           `UPDATE tickets
            SET status = ?,
+               priority = ?,
+               priority_review_required = ?,
+               priority_confirmed_by = ?,
+               priority_confirmed_at = ?,
                assigned_team = ?,
                assigned_team_id = ?,
                assigned_user_id = ?,
@@ -529,6 +592,10 @@ async function updateTicket(
         )
         .bind(
           nextStatus,
+          confirmedPriority || current.priority,
+          confirmedPriority ? 0 : current.priorityReviewRequired,
+          confirmedPriority ? identity.email : current.priorityConfirmedBy,
+          confirmedPriority ? now : current.priorityConfirmedAt,
           nextAssignedTeam,
           nextAssignedTeamId,
           nextAssignedUserId,
@@ -564,6 +631,7 @@ async function updateTicket(
       assignedUserId: nextAssignedUserId,
       assignmentSource: nextAssignmentSource,
       autoAssigned: shouldAutoAssign,
+      confirmedPriority: confirmedPriority || null,
     });
   } catch (error) {
     console.error("ticket update failed", error);

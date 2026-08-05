@@ -39,6 +39,12 @@ type Ticket = {
   description: string;
   category: string;
   priority: string;
+  prioritySuggestion?: string | null;
+  priorityReviewRequired?: boolean | number;
+  priorityConfirmedBy?: string | null;
+  priorityConfirmedAt?: string | null;
+  serviceInterruption?: string | null;
+  impactScope?: string | null;
   source: string;
   location?: string | null;
   assetTag?: string | null;
@@ -138,6 +144,9 @@ const defaultRolePermissions: RolePermissions = {
   維運人員: modules.slice(0, 5),
   一般使用者: modules.slice(0, 3),
 };
+
+const HIGH_PRIORITY_PATTERNS = [/core\s*switch/i, /核心交換器/, /fibre\s*port\s*fail/i, /fiber\s*port\s*fail/i, /dump\s*fail/i];
+function requiresPriorityReview(description: string) { return HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(description)); }
 
 function isManagedUser(value: unknown): value is ManagedUser {
   if (!value || typeof value !== "object") return false;
@@ -1169,6 +1178,8 @@ export default function Home() {
   const [assetTag, setAssetTag] = useState("");
   const [category, setCategory] = useState("自動判斷");
   const [priority, setPriority] = useState("自動判斷");
+  const [serviceInterruption, setServiceInterruption] = useState("");
+  const [impactScope, setImpactScope] = useState("");
   const [submittingTicket, setSubmittingTicket] = useState(false);
   const [notice, setNotice] = useState(false);
   const [noticeCount, setNoticeCount] = useState(3);
@@ -1179,6 +1190,7 @@ export default function Home() {
   const [ticketDetail, setTicketDetail] = useState<{ticket:Ticket;events:TicketEvent[]}|null>(null);
   const [ticketNote, setTicketNote] = useState("");
   const [ticketStatus, setTicketStatus] = useState("待處理");
+  const [confirmedPriority, setConfirmedPriority] = useState("");
   const [supportTeams, setSupportTeams] = useState<SupportTeam[]>([]);
   const [supportMembers, setSupportMembers] = useState<SupportMember[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
@@ -1195,8 +1207,10 @@ export default function Home() {
     comment: "",
   });
   const count = issue.length;
+  const priorityReviewRequired = requiresPriorityReview(issue);
   const aiResult = useMemo(() => {
     const text = issue.toLowerCase();
+    if (requiresPriorityReview(issue)) return { category: "網路連線", priority: "高", team: "網路維運組", teamId: "team-network" };
     if (/oracle|mysql|sql server|資料庫|db client/.test(text)) {
       return { category: "軟體安裝", priority: "中", team: "資料庫管理組", teamId: "team-database" };
     }
@@ -1403,10 +1417,11 @@ export default function Home() {
       return;
     }
     if (issue.trim().length < 10) return flash("問題描述至少需要 10 個字");
+    if (priorityReviewRequired && (!serviceInterruption || !impactScope.trim())) { setFormMode(true); return flash("此核心設備風險工單必須填寫服務中斷狀況與影響範圍"); }
     setSubmittingTicket(true);
     try {
       const selectedCategory = category === "自動判斷" ? aiResult.category : category;
-      const selectedPriority = priority === "自動判斷" ? aiResult.priority : priority;
+      const selectedPriority = priorityReviewRequired ? "高" : priority === "自動判斷" ? aiResult.priority : priority;
       const result = await postTicket({
         requesterName: requester,
         requesterEmail,
@@ -1415,6 +1430,8 @@ export default function Home() {
         description: issue.trim(),
         category: selectedCategory,
         priority: selectedPriority,
+        serviceInterruption: priorityReviewRequired ? serviceInterruption : undefined,
+        impactScope: priorityReviewRequired ? impactScope.trim() : undefined,
         source: formMode ? "表單報修" : "AI 報修",
         location,
         assetTag,
@@ -1424,6 +1441,8 @@ export default function Home() {
       });
       setDiagnosis(false);
       setIssue("");
+      setServiceInterruption("");
+      setImpactScope("");
       setFormMode(false);
       setActive("我的工單");
       flash(result.message || "工單已建立");
@@ -1443,6 +1462,7 @@ export default function Home() {
       const result = await response.json() as { ticket?: Ticket; events?: TicketEvent[]; message?: string };
       if (!response.ok || !result.ticket) throw new Error(result.message || "工單明細讀取失敗");
       setTicketStatus(result.ticket.status);
+      setConfirmedPriority("");
       setTicketNote("");
       setSelectedTeamId(result.ticket.assignedTeamId || result.ticket.aiSuggestedTeamId || "");
       setSelectedUserId(result.ticket.assignedUserId || "");
@@ -1468,6 +1488,7 @@ export default function Home() {
           note: ticketNote,
           assignedTeamId: selectedTeamId,
           assignedUserId: selectedUserId,
+          priorityConfirmed: confirmedPriority || undefined,
         }),
       });
       const result = await response.json() as { message?: string };
@@ -1648,9 +1669,10 @@ export default function Home() {
                 <label>緊急程度<select value={priority} onChange={e=>setPriority(e.target.value)}><option>自動判斷</option><option>緊急</option><option>高</option><option>中</option><option>低</option></select></label>
               </div>}
               <label className="issue-box"><textarea value={issue} maxLength={200} onChange={e => {setIssue(e.target.value); setDiagnosis(false)}} aria-label="問題描述" placeholder="請描述設備、錯誤訊息及發生時間" /><span>{count}/200</span></label>
+              {priorityReviewRequired && <div className="priority-review-alert" role="alert"><b>偵測到核心設備高風險關鍵字</b><span>系統建議：高優先，並將交由 MIS 最終確認。請補充下列資訊。</span><div className="priority-review-fields"><label>服務是否中斷<select required value={serviceInterruption} onChange={e=>setServiceInterruption(e.target.value)}><option value="">請選擇</option><option>未中斷</option><option>部分中斷</option><option>完全中斷</option><option>待確認</option></select></label><label>影響範圍<input required value={impactScope} maxLength={300} onChange={e=>setImpactScope(e.target.value)} placeholder="例如：17F 網路／ERP 使用者／全公司"/></label></div></div>}
               <div className="actions"><button className="primary" onClick={diagnose}>✦ 開始 AI 診斷</button><button className="link" onClick={() => {setFormMode(!formMode);setDiagnosis(false)}}>{formMode ? "返回 AI 快速報修" : "改用完整表單報修"} ›</button></div>
               <div className="suggestions">試試這些：{["無法登入", "網路異常", "軟體安裝"].map(x => <button key={x} onClick={() => setIssue(x)}>{x}</button>)}</div>
-              {diagnosis && <div className="diagnosis"><span>AI 分析完成</span><b>{category === "自動判斷" ? aiResult.category : category}</b><b className="warn">{priority === "自動判斷" ? aiResult.priority : priority}優先</b><b>{aiResult.team}</b><button disabled={submittingTicket} onClick={()=>void createTicket()}>{submittingTicket ? "正在建立…" : "確認建立工單"}</button></div>}
+              {diagnosis && <div className="diagnosis"><span>AI 分析完成</span><b>{category === "自動判斷" ? aiResult.category : category}</b><b className="warn">{priorityReviewRequired ? "高" : priority === "自動判斷" ? aiResult.priority : priority}優先</b><b>{aiResult.team}</b><button disabled={submittingTicket} onClick={()=>void createTicket()}>{submittingTicket ? "正在建立…" : "確認建立工單"}</button></div>}
             </div>
             <div className="ai-visual"><AiCoreAnimation /></div>
           </section>
@@ -1668,9 +1690,11 @@ export default function Home() {
         {ticketDetail && <div className="modal-backdrop" onMouseDown={()=>setTicketDetail(null)}><div className="modal card ticket-detail-modal" onMouseDown={e=>e.stopPropagation()}>
           <div className="ticket-detail-head"><div><span className="eyebrow">TICKET TRACKING</span><h3>{ticketDetail.ticket.ticketNumber}</h3><p>{ticketDetail.ticket.title}</p></div><span className={`priority p-${ticketDetail.ticket.priority}`}>{ticketDetail.ticket.priority}優先</span></div>
           <dl className="ticket-facts"><div><dt>申請人</dt><dd>{ticketDetail.ticket.requesterName}／{ticketDetail.ticket.department}</dd></div><div><dt>聯絡信箱</dt><dd>{ticketDetail.ticket.requesterEmail}</dd></div><div><dt>類別</dt><dd>{ticketDetail.ticket.category}</dd></div><div><dt>指派團隊</dt><dd>{ticketDetail.ticket.assignedTeam}</dd></div><div><dt>處理人員</dt><dd>{ticketDetail.ticket.assignedUserName || "由團隊接單"}</dd></div><div><dt>地點</dt><dd>{ticketDetail.ticket.location || "未填寫"}</dd></div><div><dt>設備編號</dt><dd>{ticketDetail.ticket.assetTag || "未填寫"}</dd></div></dl>
+          {Boolean(ticketDetail.ticket.priorityReviewRequired) && <div className="priority-review-summary"><b>優先級風險覆核</b><dl><div><dt>系統建議</dt><dd>{ticketDetail.ticket.prioritySuggestion || "高"}優先</dd></div><div><dt>服務中斷</dt><dd>{ticketDetail.ticket.serviceInterruption || "未填寫"}</dd></div><div><dt>影響範圍</dt><dd>{ticketDetail.ticket.impactScope || "未填寫"}</dd></div>{ticketDetail.ticket.priorityConfirmedAt && <div><dt>MIS 最終確認</dt><dd>{ticketDetail.ticket.priority}優先／{ticketDetail.ticket.priorityConfirmedBy || "MIS"}／{new Date(ticketDetail.ticket.priorityConfirmedAt).toLocaleString("zh-TW")}</dd></div>}</dl></div>}
           <div className="ticket-description"><b>問題描述</b><p>{ticketDetail.ticket.description}</p></div>
           {canUpdateTickets ? <div className="ticket-update assignment-editor">
             <label>工單狀態<select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)}><option>待處理</option><option>處理中</option><option>已解決</option><option>已結案</option></select></label>
+            {Boolean(ticketDetail.ticket.priorityReviewRequired) && <label>最終優先級確認<select value={confirmedPriority} onChange={e=>setConfirmedPriority(e.target.value)}><option value="">尚未確認（維持待覆核）</option><option>緊急</option><option>高</option><option>中</option><option>低</option></select><small className="ai-team-hint">MIS 確認後會記錄確認人與時間。</small></label>}
             <label>指派團隊
               <select value={selectedTeamId} disabled={!canAssignTickets} onChange={e=>{ const teamId=e.target.value; setSelectedTeamId(teamId); setSelectedUserId(""); void loadSupportMembers(teamId); }}>
                 <option value="">請選擇維運團隊</option>
