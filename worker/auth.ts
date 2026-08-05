@@ -493,8 +493,21 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
   }
   const username = clean(payload.username, 160).toLowerCase();
   const password = clean(payload.password, 200);
+  const portal = clean(payload.portal, 20).toLowerCase();
   if (!username || !password) {
     return json({ message: "請輸入帳號與密碼。" }, 400);
+  }
+  // Login is intentionally available only through the two explicit portals.
+  // Do this before querying credentials or creating a session so legacy forms
+  // and direct API callers cannot silently bypass the portal separation.
+  if (portal !== "user" && portal !== "admin") {
+    return json(
+      {
+        error: "LOGIN_PORTAL_REQUIRED",
+        message: "請由 /user/login 或 /admin/login 進入系統登入。",
+      },
+      400,
+    );
   }
   const rate = await loginRateStatus(request, db, username);
   if (rate.locked) {
@@ -543,6 +556,22 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
   ) {
     await recordLoginAttempt(db, username, rate.ipHash, false);
     return json({ message: "帳號或密碼錯誤，請重新輸入。" }, 401);
+  }
+
+  // The portal selection is intentionally enforced before a session is
+  // created.  This prevents a valid user account from using the admin entry
+  // point (and vice versa) merely by changing a client-side route.
+  if (portal === "user" && row.roleCode !== "user") {
+    return json(
+      { error: "PORTAL_ROLE_MISMATCH", message: "此帳號屬於管理／維運角色，請從管理後台登入。" },
+      403,
+    );
+  }
+  if (portal === "admin" && row.roleCode !== "admin" && row.roleCode !== "operator") {
+    return json(
+      { error: "PORTAL_ROLE_MISMATCH", message: "一般使用者請從使用者前台登入。" },
+      403,
+    );
   }
 
   await recordLoginAttempt(db, username, rate.ipHash, true);
