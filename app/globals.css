@@ -5462,3 +5462,93 @@ header > div:first-child p {
   .priority-rules-settings .form-grid { grid-template-columns: 1fr; }
   .priority-rules-settings .form-grid .wide { grid-column: 1; }
 }
+
+/* Governance workbench: keep the editor compact and make operational context visible. */
+.governance-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, .82fr);
+  align-items: start;
+  gap: 18px;
+}
+.governance-editor,
+.governance-records {
+  min-width: 0;
+  padding: 22px;
+}
+.governance-editor .card-head,
+.governance-records .card-head {
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e8edf5;
+}
+.governance-editor .card-head h3,
+.governance-records .card-head h3 { margin: 0 0 5px; color: #183b6b; font-size: 16px; }
+.governance-editor .card-head p,
+.governance-records .card-head p { margin: 0; color: #667085; font-size: 11px; line-height: 1.55; }
+.governance-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding-top: 18px;
+}
+.governance-form-grid .wide { grid-column: 1 / -1; }
+.governance-form-grid label { display: grid; gap: 7px; color: #344054; font-size: 11px; font-weight: 750; }
+.governance-form-grid input,
+.governance-form-grid select,
+.governance-form-grid textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #ccd7e6;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #243b61;
+  background: #fff;
+  font: 13px inherit;
+}
+.governance-form-grid textarea { min-height: 78px; resize: vertical; line-height: 1.5; }
+.governance-form-grid input:focus,
+.governance-form-grid select:focus,
+.governance-form-grid textarea:focus { outline: 3px solid #dbeafe; border-color: #4d8dff; }
+.ticket-picker { display: grid; gap: 9px; padding: 13px; border: 1px solid #dfe8f5; border-radius: 10px; background: #f8fbff; }
+.ticket-picker > div:first-child { display: grid; gap: 3px; }
+.ticket-picker b { color: #243b61; font-size: 12px; }
+.ticket-picker small { color: #667085; font-size: 10px; line-height: 1.4; }
+.ticket-picker-list { display: grid; max-height: 190px; overflow-y: auto; border: 1px solid #e1e8f1; border-radius: 8px; background: #fff; }
+.ticket-picker-list label { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 10px; border-bottom: 1px solid #eef2f7; cursor: pointer; }
+.ticket-picker-list label:last-child { border-bottom: 0; }
+.ticket-picker-list label:hover { background: #f4f8ff; }
+.ticket-picker-list input { width: 14px; min-height: 14px; margin: 0; }
+.ticket-picker-list span { display: grid; min-width: 0; gap: 2px; }
+.ticket-picker-list span b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-picker-list em { border-radius: 99px; padding: 3px 7px; color: #175cd3; background: #eaf2ff; font-size: 10px; font-style: normal; font-weight: 800; }
+.governance-records { display: grid; gap: 0; max-height: calc(100vh - 210px); min-height: 560px; overflow-y: auto; }
+.governance-record { display: grid; gap: 12px; padding: 15px 0; border-bottom: 1px solid #e8edf5; }
+.governance-record:last-child { border-bottom: 0; }
+.governance-record > div:first-child { display: grid; gap: 6px; }
+.governance-record > div:first-child > span { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.governance-record b { color: #243b61; font-size: 13px; line-height: 1.35; }
+.governance-record small { color: #667085; font-size: 11px; line-height: 1.5; }
+.governance-record i { flex: 0 0 auto; border-radius: 99px; padding: 4px 7px; color: #a15c00; background: #fff2d8; font-size: 10px; font-style: normal; font-weight: 800; }
+.governance-record i.good { color: #087443; background: #e8f7ef; }
+.governance-record i.severity-p1 { color: #b42318; background: #fee4e2; }
+.governance-record i.severity-p2 { color: #a15c00; background: #fff2d8; }
+.governance-record i.severity-p3 { color: #175cd3; background: #eaf2ff; }
+.record-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.record-actions button { min-height: 31px; padding: 6px 9px; font-size: 11px; }
+.governance-editor .card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; padding-top: 4px; }
+.governance-editor .card-actions .primary { min-width: 104px; }
+@media (max-width: 1120px) {
+  .governance-workbench { grid-template-columns: 1fr; }
+  .governance-records { max-height: none; min-height: 0; }
+}
+@media (max-width: 640px) {
+  .governance-editor, .governance-records { padding: 16px; }
+  .governance-editor .card-head { flex-direction: column; }
+  .governance-editor .card-head .secondary { width: 100%; }
+  .governance-form-grid { grid-template-columns: 1fr; }
+  .governance-form-grid .wide { grid-column: auto; }
+  .governance-editor .card-actions { justify-content: stretch; }
+  .governance-editor .card-actions button { flex: 1; }
+}

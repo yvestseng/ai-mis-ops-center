@@ -1760,103 +1760,33 @@ function GovernanceConsole({
         </div>
       )}
       {tab === "知識庫" && (
-        <div className="governance-grid incidents">
-        <div className="card governance-list">
-          <div className="card-head">
-            <div>
-              <h3>知識庫治理</h3>
-              <p>{articleDraft.id ? "編輯文章與關聯工單" : "建立文章、發布或停用；所有變更均寫入 D1 稽核紀錄"}</p>
+        <div className="governance-workbench">
+          <section className="card governance-editor">
+            <div className="card-head">
+              <div><h3>{articleDraft.id ? "編輯知識文章" : "建立知識文章"}</h3><p>建立、發布與停用皆會留下 D1 稽核紀錄。</p></div>
+              <button className="secondary" disabled={governanceSaving} onClick={() => void importGovernanceCandidates("knowledge")}>從已結案工單建立草稿</button>
             </div>
-            <button className="secondary" onClick={() => void importGovernanceCandidates("knowledge")} disabled={governanceSaving}>從已結案工單建立草稿</button>
-          </div>
-          <div className="survey-form">
-            <label>文章標題<input value={articleDraft.title} onChange={(e) => setArticleDraft((v) => ({ ...v, title: e.target.value }))} /></label>
-            <label>分類<input value={articleDraft.category} onChange={(e) => setArticleDraft((v) => ({ ...v, category: e.target.value }))} /></label>
-            <label>狀態<select value={articleDraft.status} onChange={(e) => setArticleDraft((v) => ({ ...v, status: e.target.value }))}><option>草稿</option><option>審核中</option><option>已發布</option><option>已停用</option></select></label>
-            <label>下次複核日<input type="date" value={articleDraft.reviewDueAt} onChange={(e) => setArticleDraft((v) => ({ ...v, reviewDueAt: e.target.value }))} /></label>
-            <label className="wide">摘要<textarea value={articleDraft.summary} onChange={(e) => setArticleDraft((v) => ({ ...v, summary: e.target.value }))} /></label>
-            <label className="wide">處理內容<textarea value={articleDraft.content} onChange={(e) => setArticleDraft((v) => ({ ...v, content: e.target.value }))} /></label>
-            <div className="wide"><b>關聯既有工單</b><small>勾選後會與文章一併儲存；「建立草稿」僅會匯入已結案的勾選工單。</small>
-              {candidateTickets.slice(0, 12).map((ticket) => <label key={ticket.id}><input type="checkbox" checked={selectedGovernanceTickets.includes(ticket.id)} onChange={() => toggleGovernanceTicket(ticket.id)} />{ticket.ticketNumber}・{ticket.title}（{ticket.status}）</label>)}
+            <div className="governance-form-grid">
+              <label className="wide">文章標題<input value={articleDraft.title} onChange={(e) => setArticleDraft((v) => ({ ...v, title: e.target.value }))} placeholder="例如：Outlook 同步錯誤排查 SOP" /></label>
+              <label>分類<input value={articleDraft.category} onChange={(e) => setArticleDraft((v) => ({ ...v, category: e.target.value }))} /></label>
+              <label>狀態<select value={articleDraft.status} onChange={(e) => setArticleDraft((v) => ({ ...v, status: e.target.value }))}><option>草稿</option><option>審核中</option><option>已發布</option><option>已停用</option></select></label>
+              <label className="wide">下次複核日<input type="date" value={articleDraft.reviewDueAt} onChange={(e) => setArticleDraft((v) => ({ ...v, reviewDueAt: e.target.value }))} /></label>
+              <label className="wide">摘要<textarea value={articleDraft.summary} onChange={(e) => setArticleDraft((v) => ({ ...v, summary: e.target.value }))} placeholder="摘要說明適用情境與預期成果" /></label>
+              <label className="wide">處理內容<textarea value={articleDraft.content} onChange={(e) => setArticleDraft((v) => ({ ...v, content: e.target.value }))} placeholder="填寫排查步驟、驗證方式與注意事項" /></label>
+              <div className="wide ticket-picker"><div><b>關聯既有工單</b><small>勾選後會與文章一併儲存。</small></div><div className="ticket-picker-list">{candidateTickets.slice(0, 12).map((ticket) => <label key={ticket.id}><input type="checkbox" checked={selectedGovernanceTickets.includes(ticket.id)} onChange={() => toggleGovernanceTicket(ticket.id)} /><span><b>{ticket.ticketNumber}</b><small>{ticket.title}</small></span><em>{ticket.status}</em></label>)}</div></div>
+              <div className="wide card-actions"><button className="primary" disabled={governanceSaving} onClick={() => void saveArticle()}>{governanceSaving ? "儲存中…" : articleDraft.status === "已發布" ? "儲存並發布" : "儲存文章"}</button>{articleDraft.id && <button className="secondary" onClick={() => { setArticleDraft({ id: "", title: "", summary: "", content: "", category: "其他", status: "草稿", reviewDueAt: "" }); setSelectedGovernanceTickets([]); }}>取消編輯</button>}</div>
             </div>
-            <div className="wide card-actions"><button className="primary" disabled={governanceSaving} onClick={() => void saveArticle()}>{governanceSaving ? "儲存中…" : articleDraft.status === "已發布" ? "儲存並發布" : "儲存文章"}</button>{articleDraft.id && <button className="secondary" onClick={() => { setArticleDraft({ id: "", title: "", summary: "", content: "", category: "其他", status: "草稿", reviewDueAt: "" }); setSelectedGovernanceTickets([]); }}>取消編輯</button>}</div>
-          </div>
-          {articlesError && <p className="form-error" role="alert">{articlesError}</p>}
-          {!articlesLoading && !articlesError && articles.length === 0 && (
-            <p className="empty-state">目前尚未建立知識庫文章。</p>
-          )}
-          {articles.map((article) => {
-            const usageCount = Number(article.usageCount) || 0;
-            const resolutionRate = Number(article.resolutionRate) || 0;
-            const reviewDue = article.reviewDueAt
-              ? `下次複核 ${new Date(article.reviewDueAt).toLocaleDateString("zh-TW")}`
-              : "尚未設定複核日期";
-            return (
-            <div key={article.id}>
-              <span>
-                <b>{article.title}</b>
-                <small>使用 {usageCount} 次・解決成功率 {resolutionRate}%・{reviewDue}</small>
-              </span>
-              <i className={article.status === "已發布" ? "good" : ""}>{article.status}</i>
-              <button className="secondary" onClick={() => { setArticleDraft({ id: article.id, title: article.title, summary: article.summary, content: article.content || "", category: article.category, status: article.status, reviewDueAt: article.reviewDueAt?.slice(0, 10) || "" }); setSelectedGovernanceTickets((article.tickets || []).map((ticket) => ticket.id)); }}>編輯</button>
-              <button className="secondary" onClick={() => onOpen(article.title, `${article.summary}\n\n分類：${article.category}\n狀態：${article.status}\n關聯工單：${(article.tickets || []).map((ticket) => ticket.ticketNumber).join("、") || "無"}\n${article.content || ""}`)}>檢視</button>
-            </div>
-            );
-          })}
-        </div>
+          </section>
+          <aside className="card governance-records"><div className="card-head"><div><h3>文章清單</h3><p>共 {articles.length} 篇，依發布與複核狀態治理。</p></div><span className="queue-count">{articlesLoading ? "載入中…" : `${articles.length} 篇`}</span></div>{articlesError && <p className="form-error" role="alert">{articlesError}</p>}{!articlesLoading && !articlesError && articles.length === 0 && <p className="empty-state">目前尚未建立知識庫文章。可由左側新增，或從已結案工單建立草稿。</p>}{articles.map((article) => <article className="governance-record" key={article.id}><div><span><b>{article.title}</b><i className={article.status === "已發布" ? "good" : ""}>{article.status}</i></span><small>{article.category}・使用 {Number(article.usageCount) || 0} 次・解決率 {Number(article.resolutionRate) || 0}%</small></div><div className="record-actions"><button className="secondary" onClick={() => { setArticleDraft({ id: article.id, title: article.title, summary: article.summary, content: article.content || "", category: article.category, status: article.status, reviewDueAt: article.reviewDueAt?.slice(0, 10) || "" }); setSelectedGovernanceTickets((article.tickets || []).map((ticket) => ticket.id)); }}>編輯</button><button className="secondary" onClick={() => onOpen(article.title, `${article.summary}\n\n分類：${article.category}\n狀態：${article.status}\n關聯工單：${(article.tickets || []).map((ticket) => ticket.ticketNumber).join("、") || "無"}\n${article.content || ""}`)}>檢視</button></div></article>)}</aside>
         </div>
       )}
       {tab === "重大事件" && (
-        <div className="governance-grid incidents">
-          <div className="card governance-list">
-            <div className="card-head"><div><h3>{incidentDraft.id ? "編輯重大事件" : "建立重大事件"}</h3><p>結案時必須填寫結案摘要；通知主管會寫入通知歷程。</p></div><button className="secondary" disabled={governanceSaving} onClick={() => void importGovernanceCandidates("incidents")}>由高風險工單建立待確認事件</button></div>
-            <div className="survey-form">
-              <label>事件標題<input value={incidentDraft.title} onChange={(e) => setIncidentDraft((v) => ({ ...v, title: e.target.value }))} /></label><label>嚴重度<select value={incidentDraft.severity} onChange={(e) => setIncidentDraft((v) => ({ ...v, severity: e.target.value }))}><option>P1</option><option>P2</option><option>P3</option></select></label><label>狀態<select value={incidentDraft.status} onChange={(e) => setIncidentDraft((v) => ({ ...v, status: e.target.value }))}><option>待確認重大事件</option><option>進行中</option><option>監控中</option><option>已結案</option></select></label><label>事件指揮官<input value={incidentDraft.incidentCommander} onChange={(e) => setIncidentDraft((v) => ({ ...v, incidentCommander: e.target.value }))} /></label>
-              <label>主管姓名<input value={incidentDraft.supervisorName} onChange={(e) => setIncidentDraft((v) => ({ ...v, supervisorName: e.target.value }))} /></label><label>主管信箱<input type="email" value={incidentDraft.supervisorEmail} onChange={(e) => setIncidentDraft((v) => ({ ...v, supervisorEmail: e.target.value }))} /></label><label className="wide">影響範圍<textarea value={incidentDraft.impactScope} onChange={(e) => setIncidentDraft((v) => ({ ...v, impactScope: e.target.value }))} /></label><label className="wide">結案摘要<input value={incidentDraft.closureSummary} onChange={(e) => setIncidentDraft((v) => ({ ...v, closureSummary: e.target.value }))} /></label>
-              <div className="wide"><b>關聯既有工單</b>{candidateTickets.slice(0, 12).map((ticket) => <label key={ticket.id}><input type="checkbox" checked={selectedGovernanceTickets.includes(ticket.id)} onChange={() => toggleGovernanceTicket(ticket.id)} />{ticket.ticketNumber}・{ticket.title}（{ticket.priority}）</label>)}</div>
-              <div className="wide card-actions"><button className="primary" disabled={governanceSaving} onClick={() => void saveIncident()}>{governanceSaving ? "儲存中…" : incidentDraft.status === "已結案" ? "儲存並結案" : "儲存事件"}</button>{incidentDraft.id && <button className="secondary" onClick={() => { setIncidentDraft({ id: "", title: "", severity: "P2", status: "待確認重大事件", impactScope: "", incidentCommander: "", supervisorName: "", supervisorEmail: "", closureSummary: "" }); setSelectedGovernanceTickets([]); }}>取消編輯</button>}</div>
-            </div>
-          </div>
-          {incidentsError && <p className="form-error" role="alert">{incidentsError}</p>}
-          {incidentsLoading && <p className="empty-state">正在載入重大事件…</p>}
-          {!incidentsLoading && !incidentsError && majorIncidents.length === 0 && (
-            <p className="empty-state">目前沒有已登錄的重大事件。</p>
-          )}
-          {majorIncidents.map((incident) => (
-            <article className="card governance-card" key={incident.id}>
-              <span className={`governance-level ${incident.severity.toLowerCase()}`}>{incident.severity}・{incident.status}</span>
-              <h3>{incident.title}</h3>
-              <p>{incident.impactScope || "尚未登錄影響範圍"}</p>
-              <small>關聯 {Number(incident.linkedTicketCount) || 0} 張工單・{incident.incidentCommander || "尚未指派事件指揮官"}</small>
-              <div className="card-actions">
-                <button
-                  className="secondary"
-                  onClick={() => onOpen(
-                    incident.title,
-                    `嚴重度：${incident.severity}\n狀態：${incident.status}\n影響範圍：${incident.impactScope || "尚未登錄"}\n關聯工單：${Number(incident.linkedTicketCount) || 0} 張\n主管最後通知：${incident.lastNotifiedAt ? new Date(incident.lastNotifiedAt).toLocaleString("zh-TW") : "尚未通知"}`,
-                  )}
-                >
-                  檢視關聯工單
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setIncidentDraft({ id: incident.id, title: incident.title, severity: incident.severity, status: incident.status, impactScope: incident.impactScope || "", incidentCommander: incident.incidentCommander || "", supervisorName: incident.supervisorName || "", supervisorEmail: incident.supervisorEmail || "", closureSummary: incident.closureSummary || "" });
-                    setSelectedGovernanceTickets((incident.tickets || []).map((ticket) => ticket.id));
-                  }}
-                >
-                  編輯
-                </button>
-                <button
-                  className="primary"
-                  disabled={notifyingIncidentId === incident.id}
-                  onClick={() => void notifyIncident(incident)}
-                >
-                  {notifyingIncidentId === incident.id ? "通知中…" : "通知主管"}
-                </button>
-              </div>
-            </article>
-          ))}
+        <div className="governance-workbench">
+          <section className="card governance-editor">
+            <div className="card-head"><div><h3>{incidentDraft.id ? "編輯重大事件" : "建立重大事件"}</h3><p>結案時必須填寫摘要；通知主管會完整寫入通知歷程。</p></div><button className="secondary" disabled={governanceSaving} onClick={() => void importGovernanceCandidates("incidents")}>由高風險工單建立待確認事件</button></div>
+            <div className="governance-form-grid"><label className="wide">事件標題<input value={incidentDraft.title} onChange={(e) => setIncidentDraft((v) => ({ ...v, title: e.target.value }))} placeholder="例如：Outlook 郵件服務異常" /></label><label>嚴重度<select value={incidentDraft.severity} onChange={(e) => setIncidentDraft((v) => ({ ...v, severity: e.target.value }))}><option>P1</option><option>P2</option><option>P3</option></select></label><label>狀態<select value={incidentDraft.status} onChange={(e) => setIncidentDraft((v) => ({ ...v, status: e.target.value }))}><option>待確認重大事件</option><option>進行中</option><option>監控中</option><option>已結案</option></select></label><label>事件指揮官<input value={incidentDraft.incidentCommander} onChange={(e) => setIncidentDraft((v) => ({ ...v, incidentCommander: e.target.value }))} /></label><label>主管姓名<input value={incidentDraft.supervisorName} onChange={(e) => setIncidentDraft((v) => ({ ...v, supervisorName: e.target.value }))} /></label><label className="wide">主管信箱<input type="email" value={incidentDraft.supervisorEmail} onChange={(e) => setIncidentDraft((v) => ({ ...v, supervisorEmail: e.target.value }))} placeholder="manager@example.com" /></label><label className="wide">影響範圍<textarea value={incidentDraft.impactScope} onChange={(e) => setIncidentDraft((v) => ({ ...v, impactScope: e.target.value }))} placeholder="受影響服務、部門、使用者數與目前緩解措施" /></label><label className="wide">結案摘要<textarea value={incidentDraft.closureSummary} onChange={(e) => setIncidentDraft((v) => ({ ...v, closureSummary: e.target.value }))} placeholder="事件結案時請說明根因、修正措施與追蹤事項" /></label><div className="wide ticket-picker"><div><b>關聯既有工單</b><small>選取相關工單後會與事件一併保存。</small></div><div className="ticket-picker-list">{candidateTickets.slice(0, 12).map((ticket) => <label key={ticket.id}><input type="checkbox" checked={selectedGovernanceTickets.includes(ticket.id)} onChange={() => toggleGovernanceTicket(ticket.id)} /><span><b>{ticket.ticketNumber}</b><small>{ticket.title}</small></span><em>{ticket.priority}</em></label>)}</div></div><div className="wide card-actions"><button className="primary" disabled={governanceSaving} onClick={() => void saveIncident()}>{governanceSaving ? "儲存中…" : incidentDraft.status === "已結案" ? "儲存並結案" : "儲存事件"}</button>{incidentDraft.id && <button className="secondary" onClick={() => { setIncidentDraft({ id: "", title: "", severity: "P2", status: "待確認重大事件", impactScope: "", incidentCommander: "", supervisorName: "", supervisorEmail: "", closureSummary: "" }); setSelectedGovernanceTickets([]); }}>取消編輯</button>}</div></div>
+          </section>
+          <aside className="card governance-records"><div className="card-head"><div><h3>事件清單</h3><p>掌握影響範圍、關聯工單與主管通知狀態。</p></div><span className="queue-count">{incidentsLoading ? "載入中…" : `${majorIncidents.length} 件`}</span></div>{incidentsError && <p className="form-error" role="alert">{incidentsError}</p>}{!incidentsLoading && !incidentsError && majorIncidents.length === 0 && <p className="empty-state">目前沒有重大事件。可從左側建立，或由高風險工單產生待確認事件。</p>}{majorIncidents.map((incident) => <article className="governance-record incident-record" key={incident.id}><div><span><b>{incident.title}</b><i className={`severity-${incident.severity.toLowerCase()}`}>{incident.severity}・{incident.status}</i></span><small>{incident.impactScope || "尚未登錄影響範圍"}</small><small>關聯 {Number(incident.linkedTicketCount) || 0} 張工單・{incident.incidentCommander || "尚未指派指揮官"}</small></div><div className="record-actions"><button className="secondary" onClick={() => { setIncidentDraft({ id: incident.id, title: incident.title, severity: incident.severity, status: incident.status, impactScope: incident.impactScope || "", incidentCommander: incident.incidentCommander || "", supervisorName: incident.supervisorName || "", supervisorEmail: incident.supervisorEmail || "", closureSummary: incident.closureSummary || "" }); setSelectedGovernanceTickets((incident.tickets || []).map((ticket) => ticket.id)); }}>編輯</button><button className="secondary" onClick={() => onOpen(incident.title, `嚴重度：${incident.severity}\n狀態：${incident.status}\n影響範圍：${incident.impactScope || "尚未登錄"}\n關聯工單：${Number(incident.linkedTicketCount) || 0} 張\n主管最後通知：${incident.lastNotifiedAt ? new Date(incident.lastNotifiedAt).toLocaleString("zh-TW") : "尚未通知"}`)}>檢視</button><button className="primary" disabled={notifyingIncidentId === incident.id} onClick={() => void notifyIncident(incident)}>{notifyingIncidentId === incident.id ? "通知中…" : "通知主管"}</button></div></article>)}</aside>
         </div>
       )}
       {tab === "系統使用問卷" && (
