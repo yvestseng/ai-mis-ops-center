@@ -105,29 +105,43 @@ test("priority review queue is protected and reads tickets with their latest eve
   assert.match(tickets, /t\.priority_confirmed_at IS NULL/);
 });
 
-test("knowledge base and major incident APIs use dedicated D1 tables with role protections", async () => {
-  const [worker, governance, auth, migration] = await Promise.all([
+test("governance APIs enforce management and one-time import permissions", async () => {
+  const [worker, governance, auth, migration, workflow] = await Promise.all([
     read("worker/index.ts"),
     read("worker/governance.ts"),
     read("worker/auth.ts"),
     read("drizzle/0016_governance_knowledge_incidents.sql"),
+    read("drizzle/0017_governance_management_workflow.sql"),
   ]);
 
   assert.match(worker, /knowledge-articles/);
   assert.match(worker, /major-incidents/);
+  assert.match(worker, /candidate-tickets/);
+  assert.match(worker, /import-candidates/);
   assert.match(governance, /requirePermission\(request, db, permission\)/);
   assert.match(governance, /"knowledge\.read"/);
+  assert.match(governance, /"knowledge\.manage"/);
   assert.match(governance, /"incidents\.read"/);
   assert.match(governance, /"incidents\.manage"/);
+  assert.match(governance, /"governance\.import"/);
+  assert.match(governance, /importCandidates/);
+  assert.match(governance, /saveArticle/);
+  assert.match(governance, /saveIncident/);
   assert.match(governance, /FROM knowledge_articles a/);
   assert.match(governance, /knowledge_article_ticket_links l/);
   assert.match(governance, /FROM major_incidents i/);
   assert.match(governance, /major_incident_notifications/);
   assert.match(auth, /"knowledge\.read"/);
+  assert.match(auth, /"knowledge\.manage"/);
   assert.match(auth, /"incidents\.manage"/);
+  assert.match(auth, /"governance\.import"/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS knowledge_articles/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS major_incidents/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS major_incident_notifications/);
+  assert.match(workflow, /closure_summary/);
+  assert.match(workflow, /recipient_email/);
+  assert.match(workflow, /knowledge\.manage/);
+  assert.match(workflow, /governance\.import/);
 });
 
 test("account disabling blocks self-disable and last-admin lockout", async () => {

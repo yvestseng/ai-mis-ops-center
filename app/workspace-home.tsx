@@ -96,6 +96,8 @@ type KnowledgeArticle = {
   updatedAt: string;
   usageCount: number | string;
   resolutionRate: number | string;
+  content?: string | null;
+  tickets?: { id: string; ticketNumber: string; title: string; outcome?: string }[];
 };
 
 type MajorIncident = {
@@ -110,6 +112,15 @@ type MajorIncident = {
   updatedAt: string;
   linkedTicketCount: number | string;
   lastNotifiedAt?: string | null;
+  supervisorName?: string | null;
+  supervisorEmail?: string | null;
+  closureSummary?: string | null;
+  tickets?: { id: string; ticketNumber: string; title: string }[];
+};
+
+type GovernanceCandidateTicket = {
+  id: string; ticketNumber: string; title: string; priority: string; status: string;
+  knowledgeEligible: number | boolean; incidentEligible: number | boolean;
 };
 
 type TicketEvent = {
@@ -1255,6 +1266,11 @@ function GovernanceConsole({
   const [incidentsLoading, setIncidentsLoading] = useState(false);
   const [incidentsError, setIncidentsError] = useState("");
   const [notifyingIncidentId, setNotifyingIncidentId] = useState<string | null>(null);
+  const [governanceSaving, setGovernanceSaving] = useState(false);
+  const [candidateTickets, setCandidateTickets] = useState<GovernanceCandidateTicket[]>([]);
+  const [selectedGovernanceTickets, setSelectedGovernanceTickets] = useState<string[]>([]);
+  const [articleDraft, setArticleDraft] = useState({ id: "", title: "", summary: "", content: "", category: "其他", status: "草稿", reviewDueAt: "" });
+  const [incidentDraft, setIncidentDraft] = useState({ id: "", title: "", severity: "P2", status: "待確認重大事件", impactScope: "", incidentCommander: "", supervisorName: "", supervisorEmail: "", closureSummary: "" });
   const [systemSurvey, setSystemSurvey] = useState({
     ease: "4",
     speed: "4",
@@ -1334,16 +1350,24 @@ function GovernanceConsole({
       setIncidentsLoading(false);
     }
   }, [canManageGovernance]);
+  const loadCandidateTickets = useCallback(async () => {
+    if (!canManageGovernance) return;
+    try {
+      const response = await fetch("/api/governance/candidate-tickets", { credentials: "include", cache: "no-store" });
+      const result = (await response.json()) as { tickets?: GovernanceCandidateTicket[] };
+      if (response.ok) setCandidateTickets(result.tickets || []);
+    } catch { setCandidateTickets([]); }
+  }, [canManageGovernance]);
   useEffect(() => {
     if (tab !== "知識庫") return;
-    const timer = window.setTimeout(() => void loadKnowledgeArticles(), 0);
+    const timer = window.setTimeout(() => { void loadKnowledgeArticles(); void loadCandidateTickets(); }, 0);
     return () => window.clearTimeout(timer);
-  }, [tab, loadKnowledgeArticles]);
+  }, [tab, loadKnowledgeArticles, loadCandidateTickets]);
   useEffect(() => {
     if (tab !== "重大事件") return;
-    const timer = window.setTimeout(() => void loadMajorIncidents(), 0);
+    const timer = window.setTimeout(() => { void loadMajorIncidents(); void loadCandidateTickets(); }, 0);
     return () => window.clearTimeout(timer);
-  }, [tab, loadMajorIncidents]);
+  }, [tab, loadMajorIncidents, loadCandidateTickets]);
   const [submittingSurvey, setSubmittingSurvey] = useState<
     "system_usage" | "it_service" | null
   >(null);
@@ -1535,16 +1559,69 @@ function GovernanceConsole({
       setSubmittingSurvey(null);
     }
   };
+  const toggleGovernanceTicket = (id: string) => setSelectedGovernanceTickets((current) =>
+    current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+  );
+  const saveArticle = async () => {
+    if (governanceSaving) return;
+    setGovernanceSaving(true);
+    try {
+      const response = await fetch(`/api/governance/knowledge-articles${articleDraft.id ? `/${articleDraft.id}` : ""}`, {
+        method: articleDraft.id ? "PATCH" : "POST", credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...articleDraft, ticketIds: selectedGovernanceTickets }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "知識文章儲存失敗");
+      flash(result.message || "知識文章已儲存");
+      setArticleDraft({ id: "", title: "", summary: "", content: "", category: "其他", status: "草稿", reviewDueAt: "" });
+      setSelectedGovernanceTickets([]); await loadKnowledgeArticles();
+    } catch (error) { flash(error instanceof Error ? error.message : "知識文章儲存失敗"); }
+    finally { setGovernanceSaving(false); }
+  };
+  const saveIncident = async () => {
+    if (governanceSaving) return;
+    setGovernanceSaving(true);
+    try {
+      const response = await fetch(`/api/governance/major-incidents${incidentDraft.id ? `/${incidentDraft.id}` : ""}`, {
+        method: incidentDraft.id ? "PATCH" : "POST", credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...incidentDraft, ticketIds: selectedGovernanceTickets }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "重大事件儲存失敗");
+      flash(result.message || "重大事件已儲存");
+      setIncidentDraft({ id: "", title: "", severity: "P2", status: "待確認重大事件", impactScope: "", incidentCommander: "", supervisorName: "", supervisorEmail: "", closureSummary: "" });
+      setSelectedGovernanceTickets([]); await loadMajorIncidents();
+    } catch (error) { flash(error instanceof Error ? error.message : "重大事件儲存失敗"); }
+    finally { setGovernanceSaving(false); }
+  };
+  const importGovernanceCandidates = async (mode: "knowledge" | "incidents") => {
+    if (governanceSaving) return;
+    setGovernanceSaving(true);
+    try {
+      const response = await fetch("/api/governance/import-candidates", {
+        method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode, ticketIds: selectedGovernanceTickets }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "候選資料匯入失敗");
+      flash(result.message || "候選資料已建立");
+      setSelectedGovernanceTickets([]);
+      if (mode === "knowledge") await loadKnowledgeArticles(); else await loadMajorIncidents();
+    } catch (error) { flash(error instanceof Error ? error.message : "候選資料匯入失敗"); }
+    finally { setGovernanceSaving(false); }
+  };
   const notifyIncident = async (incident: MajorIncident) => {
     if (notifyingIncidentId) return;
     setNotifyingIncidentId(incident.id);
     try {
       const response = await fetch(`/api/governance/major-incidents/${incident.id}`, {
-        method: "PATCH",
+        method: "POST",
         credentials: "include",
         cache: "no-store",
         headers: { "content-type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ note: `已由服務治理中心通知主管確認：${incident.title}` }),
+        body: JSON.stringify({ recipientName: incident.supervisorName, recipientEmail: incident.supervisorEmail, note: `已由服務治理中心通知主管確認：${incident.title}` }),
       });
       const result = (await response.json()) as { message?: string };
       if (!response.ok) throw new Error(result.message || "通知主管失敗");
@@ -1683,19 +1760,26 @@ function GovernanceConsole({
         </div>
       )}
       {tab === "知識庫" && (
+        <div className="governance-grid incidents">
         <div className="card governance-list">
           <div className="card-head">
             <div>
               <h3>知識庫治理</h3>
-              <p>資料即時取自 D1 文章、工單關聯與解決結果</p>
+              <p>{articleDraft.id ? "編輯文章與關聯工單" : "建立文章、發布或停用；所有變更均寫入 D1 稽核紀錄"}</p>
             </div>
-            <button
-              className="primary"
-              disabled={articlesLoading}
-              onClick={() => void loadKnowledgeArticles()}
-            >
-              {articlesLoading ? "載入中…" : "重新整理"}
-            </button>
+            <button className="secondary" onClick={() => void importGovernanceCandidates("knowledge")} disabled={governanceSaving}>從已結案工單建立草稿</button>
+          </div>
+          <div className="survey-form">
+            <label>文章標題<input value={articleDraft.title} onChange={(e) => setArticleDraft((v) => ({ ...v, title: e.target.value }))} /></label>
+            <label>分類<input value={articleDraft.category} onChange={(e) => setArticleDraft((v) => ({ ...v, category: e.target.value }))} /></label>
+            <label>狀態<select value={articleDraft.status} onChange={(e) => setArticleDraft((v) => ({ ...v, status: e.target.value }))}><option>草稿</option><option>審核中</option><option>已發布</option><option>已停用</option></select></label>
+            <label>下次複核日<input type="date" value={articleDraft.reviewDueAt} onChange={(e) => setArticleDraft((v) => ({ ...v, reviewDueAt: e.target.value }))} /></label>
+            <label className="wide">摘要<textarea value={articleDraft.summary} onChange={(e) => setArticleDraft((v) => ({ ...v, summary: e.target.value }))} /></label>
+            <label className="wide">處理內容<textarea value={articleDraft.content} onChange={(e) => setArticleDraft((v) => ({ ...v, content: e.target.value }))} /></label>
+            <div className="wide"><b>關聯既有工單</b><small>勾選後會與文章一併儲存；「建立草稿」僅會匯入已結案的勾選工單。</small>
+              {candidateTickets.slice(0, 12).map((ticket) => <label key={ticket.id}><input type="checkbox" checked={selectedGovernanceTickets.includes(ticket.id)} onChange={() => toggleGovernanceTicket(ticket.id)} />{ticket.ticketNumber}・{ticket.title}（{ticket.status}）</label>)}
+            </div>
+            <div className="wide card-actions"><button className="primary" disabled={governanceSaving} onClick={() => void saveArticle()}>{governanceSaving ? "儲存中…" : articleDraft.status === "已發布" ? "儲存並發布" : "儲存文章"}</button>{articleDraft.id && <button className="secondary" onClick={() => { setArticleDraft({ id: "", title: "", summary: "", content: "", category: "其他", status: "草稿", reviewDueAt: "" }); setSelectedGovernanceTickets([]); }}>取消編輯</button>}</div>
           </div>
           {articlesError && <p className="form-error" role="alert">{articlesError}</p>}
           {!articlesLoading && !articlesError && articles.length === 0 && (
@@ -1708,28 +1792,31 @@ function GovernanceConsole({
               ? `下次複核 ${new Date(article.reviewDueAt).toLocaleDateString("zh-TW")}`
               : "尚未設定複核日期";
             return (
-            <button
-              key={article.id}
-              onClick={() =>
-                onOpen(
-                  article.title,
-                  `${article.summary}\n\n分類：${article.category}\n狀態：${article.status}\n使用次數：${usageCount}\n解決成功率：${resolutionRate}%\n${reviewDue}`,
-                )
-              }
-            >
+            <div key={article.id}>
               <span>
                 <b>{article.title}</b>
                 <small>使用 {usageCount} 次・解決成功率 {resolutionRate}%・{reviewDue}</small>
               </span>
               <i className={article.status === "已發布" ? "good" : ""}>{article.status}</i>
-              <strong>檢視 ›</strong>
-            </button>
+              <button className="secondary" onClick={() => { setArticleDraft({ id: article.id, title: article.title, summary: article.summary, content: article.content || "", category: article.category, status: article.status, reviewDueAt: article.reviewDueAt?.slice(0, 10) || "" }); setSelectedGovernanceTickets((article.tickets || []).map((ticket) => ticket.id)); }}>編輯</button>
+              <button className="secondary" onClick={() => onOpen(article.title, `${article.summary}\n\n分類：${article.category}\n狀態：${article.status}\n關聯工單：${(article.tickets || []).map((ticket) => ticket.ticketNumber).join("、") || "無"}\n${article.content || ""}`)}>檢視</button>
+            </div>
             );
           })}
+        </div>
         </div>
       )}
       {tab === "重大事件" && (
         <div className="governance-grid incidents">
+          <div className="card governance-list">
+            <div className="card-head"><div><h3>{incidentDraft.id ? "編輯重大事件" : "建立重大事件"}</h3><p>結案時必須填寫結案摘要；通知主管會寫入通知歷程。</p></div><button className="secondary" disabled={governanceSaving} onClick={() => void importGovernanceCandidates("incidents")}>由高風險工單建立待確認事件</button></div>
+            <div className="survey-form">
+              <label>事件標題<input value={incidentDraft.title} onChange={(e) => setIncidentDraft((v) => ({ ...v, title: e.target.value }))} /></label><label>嚴重度<select value={incidentDraft.severity} onChange={(e) => setIncidentDraft((v) => ({ ...v, severity: e.target.value }))}><option>P1</option><option>P2</option><option>P3</option></select></label><label>狀態<select value={incidentDraft.status} onChange={(e) => setIncidentDraft((v) => ({ ...v, status: e.target.value }))}><option>待確認重大事件</option><option>進行中</option><option>監控中</option><option>已結案</option></select></label><label>事件指揮官<input value={incidentDraft.incidentCommander} onChange={(e) => setIncidentDraft((v) => ({ ...v, incidentCommander: e.target.value }))} /></label>
+              <label>主管姓名<input value={incidentDraft.supervisorName} onChange={(e) => setIncidentDraft((v) => ({ ...v, supervisorName: e.target.value }))} /></label><label>主管信箱<input type="email" value={incidentDraft.supervisorEmail} onChange={(e) => setIncidentDraft((v) => ({ ...v, supervisorEmail: e.target.value }))} /></label><label className="wide">影響範圍<textarea value={incidentDraft.impactScope} onChange={(e) => setIncidentDraft((v) => ({ ...v, impactScope: e.target.value }))} /></label><label className="wide">結案摘要<input value={incidentDraft.closureSummary} onChange={(e) => setIncidentDraft((v) => ({ ...v, closureSummary: e.target.value }))} /></label>
+              <div className="wide"><b>關聯既有工單</b>{candidateTickets.slice(0, 12).map((ticket) => <label key={ticket.id}><input type="checkbox" checked={selectedGovernanceTickets.includes(ticket.id)} onChange={() => toggleGovernanceTicket(ticket.id)} />{ticket.ticketNumber}・{ticket.title}（{ticket.priority}）</label>)}</div>
+              <div className="wide card-actions"><button className="primary" disabled={governanceSaving} onClick={() => void saveIncident()}>{governanceSaving ? "儲存中…" : incidentDraft.status === "已結案" ? "儲存並結案" : "儲存事件"}</button>{incidentDraft.id && <button className="secondary" onClick={() => { setIncidentDraft({ id: "", title: "", severity: "P2", status: "待確認重大事件", impactScope: "", incidentCommander: "", supervisorName: "", supervisorEmail: "", closureSummary: "" }); setSelectedGovernanceTickets([]); }}>取消編輯</button>}</div>
+            </div>
+          </div>
           {incidentsError && <p className="form-error" role="alert">{incidentsError}</p>}
           {incidentsLoading && <p className="empty-state">正在載入重大事件…</p>}
           {!incidentsLoading && !incidentsError && majorIncidents.length === 0 && (
@@ -1750,6 +1837,15 @@ function GovernanceConsole({
                   )}
                 >
                   檢視關聯工單
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setIncidentDraft({ id: incident.id, title: incident.title, severity: incident.severity, status: incident.status, impactScope: incident.impactScope || "", incidentCommander: incident.incidentCommander || "", supervisorName: incident.supervisorName || "", supervisorEmail: incident.supervisorEmail || "", closureSummary: incident.closureSummary || "" });
+                    setSelectedGovernanceTickets((incident.tickets || []).map((ticket) => ticket.id));
+                  }}
+                >
+                  編輯
                 </button>
                 <button
                   className="primary"
