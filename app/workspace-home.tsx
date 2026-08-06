@@ -19,6 +19,12 @@ import {
   History,
   Grid2X2,
   ChevronRight,
+  CheckCircle2,
+  CirclePlus,
+  ListFilter,
+  Pencil,
+  ShieldAlert,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { AiCoreAnimation } from "./ai-core-animation";
@@ -635,11 +641,15 @@ function PriorityRulesSettings() {
   return (
     <div className="priority-rules-settings">
       <div className="priority-rules-intro">
-        <b>規則由上而下比對</b>
-        <span>
-          排序數字越小越優先；命中後自動帶入優先級、類別、指派團隊與 MIS
-          覆核要求。
-        </span>
+        <div className="priority-rules-intro-icon"><ListFilter size={20} /></div>
+        <div>
+          <b>工單優先級自動判斷規則</b>
+          <span>系統會依排序由小到大比對。命中後自動套用優先級、分類與指派團隊；需要覆核的案件會進入 MIS 審核流程。</span>
+        </div>
+        <div className="priority-rules-summary" aria-label="規則統計">
+          <span><b>{rules.length}</b> 條規則</span>
+          <span><b>{rules.filter((rule) => enabled(rule.isActive)).length}</b> 已啟用</span>
+        </div>
       </div>
       <div className="priority-rule-layout">
         <div className="priority-rule-list">
@@ -655,7 +665,7 @@ function PriorityRulesSettings() {
                 setDraft(emptyPriorityRule());
               }}
             >
-              ＋ 新增規則
+              <CirclePlus size={16} /> 新增規則
             </button>
           </div>
           <div className="priority-rule-rows">
@@ -683,7 +693,7 @@ function PriorityRulesSettings() {
                     )[rule.priority]
                   }
                 </span>
-                <div>
+                <div className="priority-rule-name">
                   <b>{rule.ruleName}</b>
                   <small>
                     類別：{rule.category}　·　指派：{rule.assignedTeam}
@@ -698,7 +708,7 @@ function PriorityRulesSettings() {
                     aria-label={`編輯規則：${rule.ruleName}`}
                     onClick={() => edit(rule)}
                   >
-                    編輯
+                    <Pencil size={14} /> 編輯
                   </button>
                   <button
                     className="icon-action danger"
@@ -706,11 +716,20 @@ function PriorityRulesSettings() {
                     aria-label={`刪除規則：${rule.ruleName}`}
                     onClick={() => void erase(rule)}
                   >
-                    刪除
+                    <Trash2 size={14} /> 刪除
                   </button>
                 </div>
               </article>
             ))}
+            {!rules.length && (
+              <div className="priority-rule-empty">
+                <ShieldAlert size={22} />
+                <div>
+                  <b>尚未建立自動判斷規則</b>
+                  <span>請使用右上角「新增規則」建立第一條規則。</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <form
@@ -722,8 +741,8 @@ function PriorityRulesSettings() {
         >
           <div className="card-head">
             <div>
-              <h3>{id ? "編輯工單規則" : "新增工單規則"}</h3>
-              <p>所有變更會寫入稽核紀錄。</p>
+              <h3>{id ? "編輯工單規則" : "建立工單規則"}</h3>
+              <p>{id ? "修改後會立即套用於後續新建工單。" : "設定完成後，系統將自動判斷符合條件的新工單。"}</p>
             </div>
           </div>
           <div className="form-grid">
@@ -812,6 +831,7 @@ function PriorityRulesSettings() {
             </label>
           </div>
           <div className="rule-switches">
+            <div className="rule-switches-heading"><CheckCircle2 size={16} /><span>執行與覆核設定</span></div>
             <SettingRow
               title="啟用此規則"
               note="停用後不會套用到新工單"
