@@ -659,6 +659,13 @@ function PriorityRulesSettings() {
             </button>
           </div>
           <div className="priority-rule-rows">
+            <div className="priority-rule-columns" aria-hidden="true">
+              <span>優先級</span>
+              <span>規則與套用範圍</span>
+              <span>排序</span>
+              <span>狀態</span>
+              <span>操作</span>
+            </div>
             {rules.map((rule) => (
               <article
                 key={rule.id}
@@ -679,20 +686,29 @@ function PriorityRulesSettings() {
                 <div>
                   <b>{rule.ruleName}</b>
                   <small>
-                    {rule.category} · {rule.assignedTeam} · 排序{" "}
-                    {rule.displayOrder}
+                    類別：{rule.category}　·　指派：{rule.assignedTeam}
                   </small>
                 </div>
+                <strong className="rule-order">{rule.displayOrder}</strong>
                 <em>{enabled(rule.isActive) ? "啟用" : "停用"}</em>
-                <button className="icon-action" onClick={() => edit(rule)}>
-                  ✎
-                </button>
-                <button
-                  className="icon-action danger"
-                  onClick={() => void erase(rule)}
-                >
-                  ×
-                </button>
+                <div className="priority-rule-actions">
+                  <button
+                    className="icon-action"
+                    type="button"
+                    aria-label={`編輯規則：${rule.ruleName}`}
+                    onClick={() => edit(rule)}
+                  >
+                    編輯
+                  </button>
+                  <button
+                    className="icon-action danger"
+                    type="button"
+                    aria-label={`刪除規則：${rule.ruleName}`}
+                    onClick={() => void erase(rule)}
+                  >
+                    刪除
+                  </button>
+                </div>
               </article>
             ))}
           </div>
