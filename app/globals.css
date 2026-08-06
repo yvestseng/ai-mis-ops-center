@@ -5463,17 +5463,43 @@ header > div:first-child p {
   .priority-rules-settings .form-grid .wide { grid-column: 1; }
 }
 
-/* Governance workbench: keep the editor compact and make operational context visible. */
+/* Governance workbench: operational workspace with readable, compact controls. */
+.governance {
+  --governance-ink: #172b4d;
+  --governance-muted: #5d6b82;
+  --governance-line: #dce6f2;
+  --governance-surface: #ffffff;
+  --governance-soft: #f5f9ff;
+}
+.governance .page-heading {
+  align-items: center;
+  gap: 24px;
+  padding: 20px 22px;
+  margin-bottom: 14px;
+  border: 1px solid #dbe7f5;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 94% 0%, rgba(37, 99, 235, .13), transparent 31%),
+    linear-gradient(108deg, #ffffff, #f6faff);
+  box-shadow: 0 8px 24px rgba(28, 77, 137, .06);
+}
+.governance .page-heading h2 { color: var(--governance-ink); font-size: 24px; letter-spacing: -.03em; }
+.governance .page-heading p { max-width: 680px; color: var(--governance-muted); font-size: 13px; line-height: 1.6; }
+.governance .toolbar { flex-wrap: wrap; justify-content: flex-end; }
 .governance-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(360px, .82fr);
+  grid-template-columns: minmax(0, 1.28fr) minmax(390px, .72fr);
   align-items: start;
-  gap: 18px;
+  gap: 16px;
 }
 .governance-editor,
 .governance-records {
   min-width: 0;
-  padding: 22px;
+  padding: 20px;
+  border: 1px solid var(--governance-line);
+  border-radius: 14px;
+  background: var(--governance-surface);
+  box-shadow: 0 8px 22px rgba(20, 54, 95, .055);
 }
 .governance-editor .card-head,
 .governance-records .card-head {
@@ -5483,67 +5509,86 @@ header > div:first-child p {
   border-bottom: 1px solid #e8edf5;
 }
 .governance-editor .card-head h3,
-.governance-records .card-head h3 { margin: 0 0 5px; color: #183b6b; font-size: 16px; }
+.governance-records .card-head h3 { margin: 0 0 5px; color: var(--governance-ink); font-size: 17px; letter-spacing: -.015em; }
 .governance-editor .card-head p,
-.governance-records .card-head p { margin: 0; color: #667085; font-size: 11px; line-height: 1.55; }
+.governance-records .card-head p { margin: 0; color: var(--governance-muted); font-size: 12px; line-height: 1.55; }
 .governance-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  padding-top: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+  padding-top: 16px;
 }
 .governance-form-grid .wide { grid-column: 1 / -1; }
-.governance-form-grid label { display: grid; gap: 7px; color: #344054; font-size: 11px; font-weight: 750; }
+.governance-form-grid label { display: grid; gap: 7px; color: #344054; font-size: 12px; font-weight: 750; }
 .governance-form-grid input,
 .governance-form-grid select,
 .governance-form-grid textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 40px;
-  border: 1px solid #ccd7e6;
-  border-radius: 8px;
-  padding: 9px 10px;
+  min-height: 42px;
+  border: 1px solid #cbd9e9;
+  border-radius: 9px;
+  padding: 9px 11px;
   color: #243b61;
-  background: #fff;
-  font: 13px inherit;
+  background: #fcfdff;
+  font: 13px/1.4 inherit;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
-.governance-form-grid textarea { min-height: 78px; resize: vertical; line-height: 1.5; }
+.governance-form-grid textarea { min-height: 76px; resize: vertical; line-height: 1.5; }
 .governance-form-grid input:focus,
 .governance-form-grid select:focus,
 .governance-form-grid textarea:focus { outline: 3px solid #dbeafe; border-color: #4d8dff; }
-.ticket-picker { display: grid; gap: 9px; padding: 13px; border: 1px solid #dfe8f5; border-radius: 10px; background: #f8fbff; }
+.ticket-picker { display: grid; gap: 10px; padding: 14px; border: 1px solid #dbe7f5; border-radius: 11px; background: var(--governance-soft); }
 .ticket-picker > div:first-child { display: grid; gap: 3px; }
-.ticket-picker b { color: #243b61; font-size: 12px; }
-.ticket-picker small { color: #667085; font-size: 10px; line-height: 1.4; }
-.ticket-picker-list { display: grid; max-height: 190px; overflow-y: auto; border: 1px solid #e1e8f1; border-radius: 8px; background: #fff; }
-.ticket-picker-list label { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 10px; border-bottom: 1px solid #eef2f7; cursor: pointer; }
+.ticket-picker b { color: var(--governance-ink); font-size: 13px; }
+.ticket-picker small { color: var(--governance-muted); font-size: 11px; line-height: 1.4; }
+.ticket-picker-list { display: grid; max-height: 166px; overflow-y: auto; border: 1px solid #dce6f2; border-radius: 9px; background: #fff; }
+.ticket-picker-list label { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 11px; border-bottom: 1px solid #edf2f8; cursor: pointer; }
 .ticket-picker-list label:last-child { border-bottom: 0; }
 .ticket-picker-list label:hover { background: #f4f8ff; }
-.ticket-picker-list input { width: 14px; min-height: 14px; margin: 0; }
+.ticket-picker-list input { width: 15px; min-height: 15px; margin: 0; accent-color: #2563eb; }
 .ticket-picker-list span { display: grid; min-width: 0; gap: 2px; }
 .ticket-picker-list span b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ticket-picker-list em { border-radius: 99px; padding: 3px 7px; color: #175cd3; background: #eaf2ff; font-size: 10px; font-style: normal; font-weight: 800; }
-.governance-records { display: grid; gap: 0; max-height: calc(100vh - 210px); min-height: 560px; overflow-y: auto; }
-.governance-record { display: grid; gap: 12px; padding: 15px 0; border-bottom: 1px solid #e8edf5; }
+.ticket-picker-list em { border-radius: 99px; padding: 4px 8px; color: #175cd3; background: #eaf2ff; font-size: 10px; font-style: normal; font-weight: 800; }
+.governance-records { display: grid; align-content: start; gap: 0; max-height: calc(100vh - 225px); min-height: 440px; overflow-y: auto; }
+.governance-record { display: grid; gap: 12px; padding: 16px 0; border-bottom: 1px solid #e8edf5; }
 .governance-record:last-child { border-bottom: 0; }
 .governance-record > div:first-child { display: grid; gap: 6px; }
 .governance-record > div:first-child > span { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-.governance-record b { color: #243b61; font-size: 13px; line-height: 1.35; }
-.governance-record small { color: #667085; font-size: 11px; line-height: 1.5; }
+.governance-record b { color: var(--governance-ink); font-size: 13px; line-height: 1.4; }
+.governance-record small { color: var(--governance-muted); font-size: 12px; line-height: 1.5; }
 .governance-record i { flex: 0 0 auto; border-radius: 99px; padding: 4px 7px; color: #a15c00; background: #fff2d8; font-size: 10px; font-style: normal; font-weight: 800; }
 .governance-record i.good { color: #087443; background: #e8f7ef; }
 .governance-record i.severity-p1 { color: #b42318; background: #fee4e2; }
 .governance-record i.severity-p2 { color: #a15c00; background: #fff2d8; }
 .governance-record i.severity-p3 { color: #175cd3; background: #eaf2ff; }
 .record-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-.record-actions button { min-height: 31px; padding: 6px 9px; font-size: 11px; }
-.governance-editor .card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; padding-top: 4px; }
-.governance-editor .card-actions .primary { min-width: 104px; }
+.record-actions button { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+.governance-editor .card-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 4px; padding-top: 8px; border-top: 1px solid #e8edf5; }
+.governance-editor .card-actions .primary { min-width: 120px; }
+.governance-records .empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 236px;
+  margin: 18px 0 0;
+  padding: 28px;
+  border: 1px dashed #b9cce5;
+  border-radius: 12px;
+  color: #52647b;
+  background: linear-gradient(145deg, #f7fbff, #ffffff);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
 @media (max-width: 1120px) {
   .governance-workbench { grid-template-columns: 1fr; }
   .governance-records { max-height: none; min-height: 0; }
 }
+@media (max-width: 860px) {
+  .governance-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 640px) {
+  .governance .page-heading { align-items: flex-start; padding: 16px; }
   .governance-editor, .governance-records { padding: 16px; }
   .governance-editor .card-head { flex-direction: column; }
   .governance-editor .card-head .secondary { width: 100%; }
