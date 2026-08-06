@@ -339,6 +339,29 @@ header p {
   padding: 6px 8px;
   cursor: pointer;
 }
+.diagnosis-review {
+  color: #b54708;
+  background: #fffaeb;
+  border: 1px solid #fedf89;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+}
+.diagnosis-impact-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 8px;
+  flex-basis: 100%;
+  padding: 10px;
+  border: 1px solid #fedf89;
+  border-radius: 8px;
+  background: #fffaeb;
+}
+.diagnosis-impact-fields label { display: grid; gap: 4px; color: #6941c6; font-size: 11px; font-weight: 700; }
+.diagnosis-impact-fields input { width: 100%; box-sizing: border-box; min-height: 34px; border: 1px solid #d0d5dd; border-radius: 6px; padding: 7px 8px; background: #fff; }
+.diagnosis-impact-fields strong { color: #b42318; }
 .ai-visual {
   position: relative;
   display: grid;
@@ -1586,6 +1609,9 @@ textarea:focus-visible {
   padding: 12px 2px;
 }
 @media (max-width: 900px) {
+  .diagnosis-impact-fields {
+    grid-template-columns: 1fr;
+  }
   .manage-grid,
   .priority-rule-layout {
     grid-template-columns: 1fr;
@@ -2050,6 +2076,19 @@ tbody tr:hover {
   justify-content: space-between;
   padding-bottom: 8px;
   border-bottom: 1px solid #edf0f5;
+}
+.governance-card dl div:nth-child(3) {
+  display: block;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.governance-card dl div:nth-child(3) dt {
+  margin-bottom: 4px;
+}
+.governance-card dl div:nth-child(3) dd {
+  color: #475467;
+  font-weight: 650;
+  line-height: 1.45;
 }
 .governance-card dt {
   color: #667085;

@@ -103,6 +103,18 @@ type PriorityRule = {
   isActive: boolean | number;
 };
 type PriorityRuleDraft = Omit<PriorityRule, "id">;
+type TicketDiagnosis = {
+  matched: boolean;
+  rule: {
+    ruleName: string;
+    priority: string;
+    category: string;
+    assignedTeam: string;
+    priorityReviewRequired: boolean;
+    requireImpactDetails: boolean;
+  } | null;
+  message: string;
+};
 const emptyPriorityRule = (): PriorityRuleDraft => ({
   ruleName: "",
   description: "",
@@ -1181,7 +1193,7 @@ function GovernanceConsole({
     session.roleCode === "admin" ||
     session.permissions.includes("surveys.read");
   const [tab, setTab] = useState(
-    canManageGovernance ? "SLA 與派工" : "系統使用問卷",
+    canManageGovernance ? "SLA 與升級" : "系統使用問卷",
   );
   const [toast, setToast] = useState("");
   const [systemSurvey, setSystemSurvey] = useState({
@@ -1394,7 +1406,7 @@ function GovernanceConsole({
   };
   const tabs = canManageGovernance
     ? [
-        "SLA 與派工",
+        "SLA 與升級",
         "AI 覆核",
         "知識庫",
         "重大事件",
@@ -1403,10 +1415,10 @@ function GovernanceConsole({
       ]
     : ["系統使用問卷"];
   const sla = [
-    ["P1 緊急", "15 分鐘", "2 小時", "重大資安事件、全公司服務中斷"],
-    ["P2 高", "30 分鐘", "4 小時", "多位使用者或部門服務中斷"],
-    ["P3 一般", "4 小時", "1 工作日", "單一使用者一般軟硬體問題"],
-    ["P4 低", "1 工作日", "3 工作日", "設備申請、軟體安裝與改善建議"],
+    ["P1 緊急", "15 分鐘", "2 小時", "30 分鐘未回應即通知值班主管", "重大資安事件、全公司服務中斷"],
+    ["P2 高", "30 分鐘", "4 小時", "1 小時未回應即通知團隊主管", "多位使用者或部門服務中斷"],
+    ["P3 中", "4 小時", "1 工作日", "8 小時未回應即建立追蹤通知", "單一使用者一般軟硬體問題"],
+    ["P4 低", "1 工作日", "3 工作日", "2 工作日未回應即提醒處理團隊", "設備申請、軟體安裝與改善建議"],
   ];
   const reviews = [
     ["INC-20260725-003", "疑似釣魚郵件要求重設密碼", "96%", "高風險・資安值班"],
@@ -1470,9 +1482,9 @@ function GovernanceConsole({
           </button>
         ))}
       </nav>
-      {tab === "SLA 與派工" && (
+      {tab === "SLA 與升級" && (
         <div className="governance-grid">
-          {sla.map(([level, response, target, scope]) => (
+          {sla.map(([level, response, target, escalation, scope]) => (
             <article className="card governance-card" key={level}>
               <span
                 className={`governance-level ${level.slice(0, 2).toLowerCase()}`}
@@ -1488,18 +1500,22 @@ function GovernanceConsole({
                   <dt>處理目標</dt>
                   <dd>{target}</dd>
                 </div>
+                <div>
+                  <dt>逾時升級</dt>
+                  <dd>{escalation}</dd>
+                </div>
               </dl>
               <p>{scope}</p>
               <button
                 className="secondary"
                 onClick={() =>
                   onOpen(
-                    `${level} SLA 政策`,
-                    `首次回應 ${response}，處理目標 ${target}。適用範圍：${scope}。`,
+                    `${level} SLA 與升級政策`,
+                    `首次回應 ${response}，處理目標 ${target}；逾時升級：${escalation}。適用範圍：${scope}。優先級與派工由「工單規則設定」決定。`,
                   )
                 }
               >
-                檢視與調整
+                檢視 SLA 政策
               </button>
             </article>
           ))}
@@ -2765,12 +2781,16 @@ export default function Home() {
     "我的筆電連不上公司 Wi-Fi，從早上開始一直斷線",
   );
   const [diagnosis, setDiagnosis] = useState(false);
+  const [diagnosisResult, setDiagnosisResult] = useState<TicketDiagnosis | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
   const [formMode, setFormMode] = useState(false);
   const [requester, setRequester] = useState("TW_YVES");
   const [requesterEmail, setRequesterEmail] = useState("tsengs@twmns.com");
   const [department, setDepartment] = useState("資訊部");
   const [location, setLocation] = useState("台北辦公室");
   const [assetTag, setAssetTag] = useState("");
+  const [serviceInterruption, setServiceInterruption] = useState("");
+  const [impactScope, setImpactScope] = useState("");
   const [category, setCategory] = useState("自動判斷");
   const [priority, setPriority] = useState("自動判斷");
   const [submittingTicket, setSubmittingTicket] = useState(false);
@@ -2976,9 +2996,30 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, session?.id]);
 
-  function diagnose() {
+  async function diagnose() {
     if (!issue.trim()) return flash("請先輸入問題描述");
-    setDiagnosis(true);
+    setDiagnosing(true);
+    setDiagnosis(false);
+    try {
+      const response = await fetch("/api/tickets/diagnose", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: issue.trim().slice(0, 60),
+          description: issue.trim(),
+        }),
+      });
+      const result = (await response.json()) as TicketDiagnosis & { message?: string };
+      if (!response.ok) throw new Error(result.message || "AI 診斷失敗");
+      setDiagnosisResult(result);
+      setDiagnosis(true);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "AI 診斷失敗，請稍後再試");
+    } finally {
+      setDiagnosing(false);
+    }
   }
 
   async function logout() {
@@ -3061,10 +3102,13 @@ export default function Home() {
     if (issue.trim().length < 10) return flash("問題描述至少需要 10 個字");
     setSubmittingTicket(true);
     try {
-      const selectedCategory =
-        category === "自動判斷" ? aiResult.category : category;
-      const selectedPriority =
-        priority === "自動判斷" ? aiResult.priority : priority;
+      const matchedRule = diagnosisResult?.rule;
+      if (matchedRule?.requireImpactDetails && (!serviceInterruption.trim() || !impactScope.trim())) {
+        flash("已命中優先級規則，請填寫服務中斷狀況與影響範圍");
+        return;
+      }
+      const selectedCategory = matchedRule?.category || (category === "自動判斷" ? aiResult.category : category);
+      const selectedPriority = matchedRule?.priority || (priority === "自動判斷" ? aiResult.priority : priority);
       const result = await postTicket({
         requesterName: requester,
         requesterEmail,
@@ -3076,12 +3120,17 @@ export default function Home() {
         source: formMode ? "表單報修" : "AI 報修",
         location,
         assetTag,
-        assignedTeam: aiResult.team,
-        assignedTeamId: aiResult.teamId,
-        aiSuggestedTeamId: aiResult.teamId,
+        assignedTeam: matchedRule?.assignedTeam || aiResult.team,
+        assignedTeamId: matchedRule ? undefined : aiResult.teamId,
+        aiSuggestedTeamId: matchedRule ? undefined : aiResult.teamId,
+        serviceInterruption,
+        impactScope,
       });
       setDiagnosis(false);
       setIssue("");
+      setDiagnosisResult(null);
+      setServiceInterruption("");
+      setImpactScope("");
       setFormMode(false);
       setActive("我的工單");
       flash(result.message || "工單已建立");
@@ -3594,6 +3643,7 @@ export default function Home() {
                   onChange={(e) => {
                     setIssue(e.target.value);
                     setDiagnosis(false);
+                    setDiagnosisResult(null);
                   }}
                   aria-label="問題描述"
                   placeholder="請描述設備、錯誤訊息及發生時間"
@@ -3601,14 +3651,15 @@ export default function Home() {
                 <span>{count}/200</span>
               </label>
               <div className="actions">
-                <button className="primary" onClick={diagnose}>
-                  ✦ 開始 AI 診斷
+                <button className="primary" disabled={diagnosing} onClick={() => void diagnose()}>
+                  {diagnosing ? "AI 診斷中…" : "✦ 開始 AI 診斷"}
                 </button>
                 <button
                   className="link"
                   onClick={() => {
                     setFormMode(!formMode);
                     setDiagnosis(false);
+                    setDiagnosisResult(null);
                   }}
                 >
                   {formMode ? "返回 AI 快速報修" : "改用完整表單報修"} ›
@@ -3624,14 +3675,25 @@ export default function Home() {
               </div>
               {diagnosis && (
                 <div className="diagnosis">
-                  <span>AI 分析完成</span>
+                  <span>{diagnosisResult?.matched ? diagnosisResult.message : "AI 分析完成（預設分類）"}</span>
                   <b>
-                    {category === "自動判斷" ? aiResult.category : category}
+                    {diagnosisResult?.rule?.category || (category === "自動判斷" ? aiResult.category : category)}
                   </b>
                   <b className="warn">
-                    {priority === "自動判斷" ? aiResult.priority : priority}優先
+                    {diagnosisResult?.rule?.priority || (priority === "自動判斷" ? aiResult.priority : priority)}優先
                   </b>
-                  <b>{aiResult.team}</b>
+                  <b>{diagnosisResult?.rule?.assignedTeam || aiResult.team}</b>
+                  {diagnosisResult?.rule?.priorityReviewRequired && <em className="diagnosis-review">需要 MIS 覆核</em>}
+                  {diagnosisResult?.rule?.requireImpactDetails && (
+                    <div className="diagnosis-impact-fields">
+                      <label>服務中斷狀況
+                        <input value={serviceInterruption} onChange={(e) => setServiceInterruption(e.target.value)} placeholder="例如：核心交換器連線中斷" />
+                      </label>
+                      <label>影響範圍 <strong>必填</strong>
+                        <input value={impactScope} onChange={(e) => setImpactScope(e.target.value)} placeholder="例如：17 樓及資料中心網路服務" />
+                      </label>
+                    </div>
+                  )}
                   <button
                     disabled={submittingTicket}
                     onClick={() => void createTicket()}

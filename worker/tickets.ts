@@ -55,25 +55,90 @@ function validEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-// [MODIFIED: P1 priority review] Keep this server-side rule authoritative.
-// The client uses the same criteria only to provide immediate UI guidance.
-const HIGH_PRIORITY_PATTERNS = [
-  /core\s*switch/i, /核心交換器/, /core\s*router/i, /核心路由器/,
-  /fibre\s*port\s*fail/i, /fiber\s*port\s*fail/i, /dump\s*fail/i,
-  /網際網路主線中斷/, /對外網路中斷/, /internet\s*(line|link).*?(down|fail)/i,
-  /全公司/, /全廠/, /主要據點/, /大量使用者受影響/,
-];
-const FIREWALL_PATTERN = /firewall|fortigate|palo\s*alto|防火牆/i;
-const SERVER_PATTERN = /server|host|伺服器|主機/i;
-const BOOT_FAILURE_PATTERN = /整體無法開機|無法開機|無法啟動|無法上電|無法運作|power\s*fail|cannot\s*(boot|power\s*on)|won['’]?t\s*boot/i;
+type PriorityRuleMatch = {
+  ruleName: string;
+  priority: string;
+  category: string;
+  assignedTeam: string;
+  priorityReviewRequired: number;
+  requireImpactDetails: number;
+  matchAllTerms: string;
+  matchAnyTerms: string;
+};
 
-function requiresPriorityReview(title: string, description: string) {
-  const content = `${title} ${description}`;
-  return (
-    HIGH_PRIORITY_PATTERNS.some((pattern) => pattern.test(content)) ||
-    ((FIREWALL_PATTERN.test(content) || SERVER_PATTERN.test(content)) &&
-      BOOT_FAILURE_PATTERN.test(content))
-  );
+function parseRuleTerms(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((term): term is string => typeof term === "string" && term.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function matchesTerm(content: string, term: string) {
+  // A vertical bar represents alternatives within one required criterion.
+  return term.split("|").some((part) => content.includes(part.trim().toLowerCase()));
+}
+
+function ruleMatches(content: string, rule: PriorityRuleMatch) {
+  const all = parseRuleTerms(rule.matchAllTerms);
+  const any = parseRuleTerms(rule.matchAnyTerms);
+  // Empty rules are a fallback only; keyword rules always take precedence.
+  if (!all.length && !any.length) return false;
+  return all.every((term) => matchesTerm(content, term)) &&
+    (!any.length || any.some((term) => matchesTerm(content, term)));
+}
+
+async function resolvePriorityRule(db: D1Database, title: string, description: string) {
+  try {
+    const result = await db.prepare(
+      `SELECT rule_name AS ruleName, priority, category, assigned_team AS assignedTeam,
+              priority_review_required AS priorityReviewRequired,
+              require_impact_details AS requireImpactDetails,
+              match_all_terms AS matchAllTerms, match_any_terms AS matchAnyTerms
+       FROM ticket_priority_rules WHERE is_active=1 ORDER BY display_order, rule_name`,
+    ).all<PriorityRuleMatch>();
+    const content = `${title} ${description}`.toLowerCase();
+    const rules = result.results ?? [];
+    return rules.find((rule) => ruleMatches(content, rule)) ?? null;
+  } catch (error) {
+    // The migration may not yet be applied. Preserve ticket creation until it is.
+    console.warn("priority rules unavailable; using submitted classification", error);
+    return null;
+  }
+}
+
+async function diagnoseTicket(request: Request, db: D1Database) {
+  let payload: TicketPayload;
+  try {
+    payload = (await request.json()) as TicketPayload;
+  } catch {
+    return json({ error: "INVALID_JSON", message: "診斷資料格式不正確。" }, 400);
+  }
+  const description = textValue(payload.description, 3000);
+  const title = textValue(payload.title, 120) || description.slice(0, 60);
+  if (description.length < 1) {
+    return json({ error: "INVALID_TICKET", message: "請先輸入問題描述。" }, 400);
+  }
+  const matchedRule = await resolvePriorityRule(db, title, description);
+  return json({
+    matched: Boolean(matchedRule),
+    rule: matchedRule
+      ? {
+          ruleName: matchedRule.ruleName,
+          priority: matchedRule.priority,
+          category: matchedRule.category,
+          assignedTeam: matchedRule.assignedTeam,
+          priorityReviewRequired: matchedRule.priorityReviewRequired === 1,
+          requireImpactDetails: matchedRule.requireImpactDetails === 1,
+        }
+      : null,
+    message: matchedRule
+      ? `已命中：${matchedRule.ruleName}`
+      : "未命中自訂規則，將使用 AI 預設分類。",
+  });
 }
 
 async function createTicket(
@@ -95,16 +160,20 @@ async function createTicket(
     identity.department || textValue(payload.department, 80) || "未設定";
   const title = textValue(payload.title, 120);
   const description = textValue(payload.description, 3000);
-  const category = textValue(payload.category, 40) || "其他";
-  const priority = textValue(payload.priority, 10);
+  const submittedCategory = textValue(payload.category, 40) || "其他";
+  const submittedPriority = textValue(payload.priority, 10);
   const serviceInterruption = textValue(payload.serviceInterruption, 30) || null;
   const impactScope = textValue(payload.impactScope, 300) || null;
   const source = textValue(payload.source, 30) || "AI 報修";
   const location = textValue(payload.location, 120) || null;
   const assetTag = textValue(payload.assetTag, 80) || null;
-  const assignedTeam = textValue(payload.assignedTeam, 80) || "MIS 服務台";
-
-  const priorityReviewRequired = requiresPriorityReview(title, description);
+  const submittedAssignedTeam = textValue(payload.assignedTeam, 80) || "MIS 服務台";
+  const matchedRule = await resolvePriorityRule(db, title, description);
+  const category = matchedRule?.category || submittedCategory;
+  const priority = matchedRule?.priority || submittedPriority;
+  const assignedTeam = matchedRule?.assignedTeam || submittedAssignedTeam;
+  const priorityReviewRequired = matchedRule?.priorityReviewRequired === 1;
+  const requireImpactDetails = matchedRule?.requireImpactDetails === 1;
   if (
     !requesterToken ||
     !requesterName ||
@@ -112,13 +181,13 @@ async function createTicket(
     title.length < 4 ||
     description.length < 10 ||
     !["緊急", "高", "中", "低"].includes(priority) ||
-    (priorityReviewRequired && (!serviceInterruption || !impactScope))
+    (requireImpactDetails && (!serviceInterruption || !impactScope))
   ) {
     return json(
       {
         error: "INVALID_TICKET",
-        message: priorityReviewRequired
-          ? "偵測到核心設備風險，請填寫服務中斷狀況與影響範圍。"
+        message: requireImpactDetails
+          ? "命中優先級規則，請填寫服務中斷狀況與影響範圍。"
           : "請完整填寫申請人、信箱、部門、標題及至少 10 字的問題描述。",
       },
       400,
@@ -129,7 +198,7 @@ async function createTicket(
   const number = ticketNumber(new Date());
   const now = new Date().toISOString();
   const requesterHash = await sha256(requesterToken);
-  const initialNote = `工單已由${source}建立，指派至${assignedTeam}。`;
+  const initialNote = `工單已由${source}建立，優先級：${priority}，指派至${assignedTeam}${matchedRule ? "（已套用自動判斷規則）" : ""}。`;
 
   try {
     await db.batch([
@@ -152,8 +221,8 @@ async function createTicket(
           title,
           description,
           category,
-          priorityReviewRequired ? "高" : priority,
-          priorityReviewRequired ? "高" : null,
+          priority,
+          matchedRule ? priority : null,
           priorityReviewRequired ? 1 : 0,
           serviceInterruption,
           impactScope,
@@ -175,6 +244,7 @@ async function createTicket(
     await audit(db, identity, "create", "ticket", id, {
       ticketNumber: number,
       priority,
+      matchedRule: Boolean(matchedRule),
       priorityReviewRequired,
     });
   } catch (error) {
@@ -197,8 +267,8 @@ async function createTicket(
         title,
         description,
         category,
-        priority: priorityReviewRequired ? "高" : priority,
-        prioritySuggestion: priorityReviewRequired ? "高" : null,
+        priority,
+        prioritySuggestion: matchedRule ? priority : null,
         priorityReviewRequired,
         serviceInterruption,
         impactScope,
@@ -212,8 +282,8 @@ async function createTicket(
         updatedAt: now,
       },
       message: priorityReviewRequired
-        ? `工單 ${number} 已建立：系統建議高優先，待 MIS 確認。`
-        : `工單 ${number} 已建立並指派給 ${assignedTeam}。`,
+        ? `工單 ${number} 已建立：已套用 ${priority} 優先級，待 MIS 覆核。`
+        : `工單 ${number} 已建立並套用 ${priority} 優先級，指派給 ${assignedTeam}。`,
     },
     201,
   );
@@ -701,5 +771,20 @@ export function handleTicketRequest(
   return Promise.resolve(task).catch((error) => {
     console.error("ticket request failed", error);
     return json({ error: "TICKET_REQUEST_FAILED", message: "工單服務暫時無法使用。" }, 500);
+  });
+}
+
+export function handleTicketDiagnosisRequest(request: Request, db: D1Database) {
+  const task = (async () => {
+    const auth = await requireIdentity(request, db);
+    if (!auth.identity) return auth.response!;
+    if (auth.response) return auth.response;
+    return request.method === "POST"
+      ? diagnoseTicket(request, db)
+      : json({ error: "METHOD_NOT_ALLOWED", message: "不支援此操作。" }, 405);
+  })();
+  return Promise.resolve(task).catch((error) => {
+    console.error("ticket diagnosis failed", error);
+    return json({ error: "TICKET_DIAGNOSIS_FAILED", message: "工單診斷服務暫時無法使用。" }, 500);
   });
 }
