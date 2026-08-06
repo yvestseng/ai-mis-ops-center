@@ -304,6 +304,31 @@ export const tickets = sqliteTable(
   ],
 );
 
+export const ticketPriorityRules = sqliteTable(
+  "ticket_priority_rules",
+  {
+    id: text().primaryKey().notNull(),
+    ruleName: text("rule_name").notNull(),
+    description: text(),
+    matchAllTerms: text("match_all_terms").default("[]").notNull(),
+    matchAnyTerms: text("match_any_terms").default("[]").notNull(),
+    priority: text().notNull(),
+    category: text().notNull(),
+    assignedTeam: text("assigned_team").notNull(),
+    priorityReviewRequired: integer("priority_review_required", { mode: "boolean" }).default(false).notNull(),
+    requireImpactDetails: integer("require_impact_details", { mode: "boolean" }).default(false).notNull(),
+    displayOrder: integer("display_order").default(100).notNull(),
+    isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdBy: text("created_by"),
+    updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    index("ticket_priority_rules_active_order_idx").on(table.isActive, table.displayOrder),
+  ],
+);
+
 export const ticketEvents = sqliteTable(
   "ticket_events",
   {
