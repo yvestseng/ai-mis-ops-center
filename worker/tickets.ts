@@ -430,6 +430,46 @@ async function getTicket(
   return json({ ticket: row, events: events.results });
 }
 
+/** The formal governance queue: pending review tickets plus their latest D1 event. */
+async function listPriorityReviewTickets(db: D1Database) {
+  const result = await db
+    .prepare(
+      `SELECT t.id,
+              t.ticket_number AS ticketNumber,
+              t.title,
+              t.description,
+              t.category,
+              t.priority,
+              t.priority_suggestion AS prioritySuggestion,
+              t.assigned_team AS assignedTeam,
+              t.status,
+              t.service_interruption AS serviceInterruption,
+              t.impact_scope AS impactScope,
+              t.created_at AS createdAt,
+              t.updated_at AS updatedAt,
+              latest.event_type AS latestEventType,
+              latest.actor_name AS latestEventActorName,
+              latest.note AS latestEventNote,
+              latest.created_at AS latestEventCreatedAt
+       FROM tickets t
+       LEFT JOIN ticket_events latest ON latest.id = (
+         SELECT e.id FROM ticket_events e
+         WHERE e.ticket_id = t.id
+         ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+       )
+       WHERE t.priority_review_required = 1
+         AND t.priority_confirmed_at IS NULL
+         AND t.status NOT IN ('已結案')
+       ORDER BY CASE t.priority
+                  WHEN '緊急' THEN 1 WHEN '高' THEN 2 WHEN '中' THEN 3 ELSE 4
+                END, t.created_at ASC
+       LIMIT 100`,
+    )
+    .all();
+
+  return json({ reviews: result.results ?? [] });
+}
+
 async function updateTicket(
   request: Request,
   db: D1Database,
@@ -786,5 +826,24 @@ export function handleTicketDiagnosisRequest(request: Request, db: D1Database) {
   return Promise.resolve(task).catch((error) => {
     console.error("ticket diagnosis failed", error);
     return json({ error: "TICKET_DIAGNOSIS_FAILED", message: "工單診斷服務暫時無法使用。" }, 500);
+  });
+}
+
+export function handleTicketPriorityReviewRequest(
+  request: Request,
+  db: D1Database,
+) {
+  const task = (async () => {
+    if (request.method !== "GET") {
+      return json({ error: "METHOD_NOT_ALLOWED", message: "不支援此操作。" }, 405);
+    }
+    const auth = await requirePermission(request, db, "tickets.update");
+    if (!auth.identity) return auth.response!;
+    if (auth.response) return auth.response;
+    return listPriorityReviewTickets(db);
+  })();
+  return Promise.resolve(task).catch((error) => {
+    console.error("ticket priority review request failed", error);
+    return json({ error: "TICKET_PRIORITY_REVIEW_FAILED", message: "覆核佇列暫時無法讀取。" }, 500);
   });
 }

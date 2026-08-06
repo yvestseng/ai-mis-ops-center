@@ -6,7 +6,11 @@ import {
 } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { handleSurveyRequest } from "./surveys";
-import { handleTicketDiagnosisRequest, handleTicketRequest } from "./tickets";
+import {
+  handleTicketDiagnosisRequest,
+  handleTicketPriorityReviewRequest,
+  handleTicketRequest,
+} from "./tickets";
 import { handleAdminRequest, handleSessionRequest } from "./admin";
 import { handleDashboardRequest } from "./dashboard";
 import { handleSupportTeamRequest } from "./support-teams";
@@ -65,6 +69,10 @@ const worker = {
 
       if (url.pathname === "/api/tickets/diagnose") {
         return respond(handleTicketDiagnosisRequest(request, env.DB));
+      }
+
+      if (url.pathname === "/api/tickets/priority-reviews") {
+        return respond(handleTicketPriorityReviewRequest(request, env.DB));
       }
 
       if (url.pathname === "/api/tickets") {

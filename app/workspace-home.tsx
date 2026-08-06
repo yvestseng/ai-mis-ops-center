@@ -63,6 +63,28 @@ type Ticket = {
   updatedAt: string;
 };
 
+type TicketPriorityReview = Pick<
+  Ticket,
+  | "id"
+  | "ticketNumber"
+  | "title"
+  | "description"
+  | "category"
+  | "priority"
+  | "assignedTeam"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
+> & {
+  prioritySuggestion?: string | null;
+  serviceInterruption?: string | null;
+  impactScope?: string | null;
+  latestEventType?: string | null;
+  latestEventActorName?: string | null;
+  latestEventNote?: string | null;
+  latestEventCreatedAt?: string | null;
+};
+
 type TicketEvent = {
   eventType: string;
   fromStatus?: string | null;
@@ -1191,11 +1213,14 @@ function GovernanceConsole({
 }) {
   const canManageGovernance =
     session.roleCode === "admin" ||
-    session.permissions.includes("surveys.read");
+    session.permissions.includes("tickets.update");
   const [tab, setTab] = useState(
     canManageGovernance ? "SLA 與升級" : "系統使用問卷",
   );
   const [toast, setToast] = useState("");
+  const [reviews, setReviews] = useState<TicketPriorityReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState("");
   const [systemSurvey, setSystemSurvey] = useState({
     ease: "4",
     speed: "4",
@@ -1213,6 +1238,38 @@ function GovernanceConsole({
     comment: "說明清楚，問題已完整排除。",
   });
   const [servicePersonLoading, setServicePersonLoading] = useState(false);
+  const loadPriorityReviews = useCallback(async () => {
+    if (!canManageGovernance) return;
+    setReviewsLoading(true);
+    setReviewsError("");
+    try {
+      const response = await fetch("/api/tickets/priority-reviews", {
+        credentials: "include",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const result = (await response.json()) as {
+        reviews?: TicketPriorityReview[];
+        message?: string;
+      };
+      if (!response.ok) throw new Error(result.message || "覆核佇列讀取失敗");
+      setReviews(result.reviews || []);
+    } catch (error) {
+      setReviewsError(error instanceof Error ? error.message : "覆核佇列讀取失敗");
+    } finally {
+      setReviewsLoading(false);
+    }
+  }, [canManageGovernance]);
+
+  useEffect(() => {
+  if (tab !== "AI 覆核") return;
+
+  const timer = window.setTimeout(() => {
+    void loadPriorityReviews();
+  }, 0);
+
+  return () => window.clearTimeout(timer);
+}, [tab, loadPriorityReviews]);
   const [submittingSurvey, setSubmittingSurvey] = useState<
     "system_usage" | "it_service" | null
   >(null);
@@ -1420,16 +1477,6 @@ function GovernanceConsole({
     ["P3 中", "4 小時", "1 工作日", "8 小時未回應即建立追蹤通知", "單一使用者一般軟硬體問題"],
     ["P4 低", "1 工作日", "3 工作日", "2 工作日未回應即提醒處理團隊", "設備申請、軟體安裝與改善建議"],
   ];
-  const reviews = [
-    ["INC-20260725-003", "疑似釣魚郵件要求重設密碼", "96%", "高風險・資安值班"],
-    [
-      "INC-20260725-001",
-      "Outlook 無法收信且顯示同步錯誤",
-      "82%",
-      "P2・系統維運組",
-    ],
-    ["INC-20260725-006", "VPN 登入後無法進入 ERP", "78%", "待人工確認"],
-  ];
   const knowledge = [
     ["Outlook 同步錯誤排查 SOP", "已發布", "使用 42 次・解決成功率 86%"],
     ["VPN 已連線但內部系統不可達", "審核中", "由工單轉為知識草稿"],
@@ -1526,26 +1573,32 @@ function GovernanceConsole({
           <div className="card-head">
             <div>
               <h3>人工覆核佇列</h3>
-              <p>低信心、P1/P2 與高風險事件必須人工確認</p>
+              <p>資料即時取自 D1 待覆核工單與最新處理事件</p>
             </div>
-            <span className="queue-count">{reviews.length} 件待處理</span>
+            <span className="queue-count">
+              {reviewsLoading ? "載入中…" : `${reviews.length} 件待處理`}
+            </span>
           </div>
-          {reviews.map(([id, title, confidence, meta]) => (
+          {reviewsError && <p className="form-error" role="alert">{reviewsError}</p>}
+          {!reviewsLoading && !reviewsError && reviews.length === 0 && (
+            <p className="empty-state">目前沒有待人工覆核的工單。</p>
+          )}
+          {reviews.map((review) => (
             <button
-              key={id}
+              key={review.id}
               onClick={() =>
                 onOpen(
-                  id,
-                  `${title}。AI 信心 ${confidence}，判定結果：${meta}。請確認分類、優先度及派工對象。`,
+                  review.ticketNumber,
+                  `${review.title}。建議優先級：${review.prioritySuggestion || review.priority}；目前優先級：${review.priority}；分類：${review.category}；指派團隊：${review.assignedTeam || "待指派"}；最新事件：${review.latestEventNote || "尚無處理事件"}。請確認分類、優先級及派工對象。`,
                 )
               }
             >
               <span>
-                <b>{id}</b>
-                <small>{title}</small>
+                <b>{review.ticketNumber}</b>
+                <small>{review.title}</small>
               </span>
-              <em>{confidence}</em>
-              <i>{meta}</i>
+              <em>{review.prioritySuggestion || review.priority}</em>
+              <i>{review.category}・{review.assignedTeam || "待指派"}</i>
               <strong>覆核 ›</strong>
             </button>
           ))}

@@ -90,6 +90,21 @@ test("ticket APIs enforce own-vs-all reads and assignment escalation checks", as
   assert.match(tickets, /error: "FORBIDDEN"/);
 });
 
+test("priority review queue is protected and reads tickets with their latest event", async () => {
+  const [worker, tickets] = await Promise.all([
+    read("worker/index.ts"),
+    read("worker/tickets.ts"),
+  ]);
+
+  assert.match(worker, /\/api\/tickets\/priority-reviews/);
+  assert.match(tickets, /handleTicketPriorityReviewRequest/);
+  assert.match(tickets, /requirePermission\(request, db, "tickets\.update"\)/);
+  assert.match(tickets, /FROM tickets t/);
+  assert.match(tickets, /ticket_events latest/);
+  assert.match(tickets, /t\.priority_review_required = 1/);
+  assert.match(tickets, /t\.priority_confirmed_at IS NULL/);
+});
+
 test("account disabling blocks self-disable and last-admin lockout", async () => {
   const admin = await read("worker/admin.ts");
 
