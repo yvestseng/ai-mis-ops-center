@@ -85,6 +85,33 @@ type TicketPriorityReview = Pick<
   latestEventCreatedAt?: string | null;
 };
 
+type KnowledgeArticle = {
+  id: string;
+  title: string;
+  summary: string;
+  category: string;
+  status: string;
+  reviewDueAt?: string | null;
+  publishedAt?: string | null;
+  updatedAt: string;
+  usageCount: number | string;
+  resolutionRate: number | string;
+};
+
+type MajorIncident = {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  impactScope?: string | null;
+  incidentCommander?: string | null;
+  openedAt: string;
+  resolvedAt?: string | null;
+  updatedAt: string;
+  linkedTicketCount: number | string;
+  lastNotifiedAt?: string | null;
+};
+
 type TicketEvent = {
   eventType: string;
   fromStatus?: string | null;
@@ -1221,6 +1248,13 @@ function GovernanceConsole({
   const [reviews, setReviews] = useState<TicketPriorityReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState("");
+  const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
+  const [articlesLoading, setArticlesLoading] = useState(false);
+  const [articlesError, setArticlesError] = useState("");
+  const [majorIncidents, setMajorIncidents] = useState<MajorIncident[]>([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [incidentsError, setIncidentsError] = useState("");
+  const [notifyingIncidentId, setNotifyingIncidentId] = useState<string | null>(null);
   const [systemSurvey, setSystemSurvey] = useState({
     ease: "4",
     speed: "4",
@@ -1262,14 +1296,54 @@ function GovernanceConsole({
   }, [canManageGovernance]);
 
   useEffect(() => {
-  if (tab !== "AI 覆核") return;
-
-  const timer = window.setTimeout(() => {
-    void loadPriorityReviews();
-  }, 0);
-
-  return () => window.clearTimeout(timer);
-}, [tab, loadPriorityReviews]);
+    if (tab !== "AI 覆核") return;
+    const timer = window.setTimeout(() => void loadPriorityReviews(), 0);
+    return () => window.clearTimeout(timer);
+  }, [tab, loadPriorityReviews]);
+  const loadKnowledgeArticles = useCallback(async () => {
+    if (!canManageGovernance) return;
+    setArticlesLoading(true);
+    setArticlesError("");
+    try {
+      const response = await fetch("/api/governance/knowledge-articles", {
+        credentials: "include", cache: "no-store", headers: { Accept: "application/json" },
+      });
+      const result = (await response.json()) as { articles?: KnowledgeArticle[]; message?: string };
+      if (!response.ok) throw new Error(result.message || "知識庫資料讀取失敗");
+      setArticles(result.articles || []);
+    } catch (error) {
+      setArticlesError(error instanceof Error ? error.message : "知識庫資料讀取失敗");
+    } finally {
+      setArticlesLoading(false);
+    }
+  }, [canManageGovernance]);
+  const loadMajorIncidents = useCallback(async () => {
+    if (!canManageGovernance) return;
+    setIncidentsLoading(true);
+    setIncidentsError("");
+    try {
+      const response = await fetch("/api/governance/major-incidents", {
+        credentials: "include", cache: "no-store", headers: { Accept: "application/json" },
+      });
+      const result = (await response.json()) as { incidents?: MajorIncident[]; message?: string };
+      if (!response.ok) throw new Error(result.message || "重大事件資料讀取失敗");
+      setMajorIncidents(result.incidents || []);
+    } catch (error) {
+      setIncidentsError(error instanceof Error ? error.message : "重大事件資料讀取失敗");
+    } finally {
+      setIncidentsLoading(false);
+    }
+  }, [canManageGovernance]);
+  useEffect(() => {
+    if (tab !== "知識庫") return;
+    const timer = window.setTimeout(() => void loadKnowledgeArticles(), 0);
+    return () => window.clearTimeout(timer);
+  }, [tab, loadKnowledgeArticles]);
+  useEffect(() => {
+    if (tab !== "重大事件") return;
+    const timer = window.setTimeout(() => void loadMajorIncidents(), 0);
+    return () => window.clearTimeout(timer);
+  }, [tab, loadMajorIncidents]);
   const [submittingSurvey, setSubmittingSurvey] = useState<
     "system_usage" | "it_service" | null
   >(null);
@@ -1461,6 +1535,27 @@ function GovernanceConsole({
       setSubmittingSurvey(null);
     }
   };
+  const notifyIncident = async (incident: MajorIncident) => {
+    if (notifyingIncidentId) return;
+    setNotifyingIncidentId(incident.id);
+    try {
+      const response = await fetch(`/api/governance/major-incidents/${incident.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "content-type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ note: `已由服務治理中心通知主管確認：${incident.title}` }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "通知主管失敗");
+      flash(result.message || "已記錄主管通知");
+      await loadMajorIncidents();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "通知主管失敗");
+    } finally {
+      setNotifyingIncidentId(null);
+    }
+  };
   const tabs = canManageGovernance
     ? [
         "SLA 與升級",
@@ -1476,23 +1571,6 @@ function GovernanceConsole({
     ["P2 高", "30 分鐘", "4 小時", "1 小時未回應即通知團隊主管", "多位使用者或部門服務中斷"],
     ["P3 中", "4 小時", "1 工作日", "8 小時未回應即建立追蹤通知", "單一使用者一般軟硬體問題"],
     ["P4 低", "1 工作日", "3 工作日", "2 工作日未回應即提醒處理團隊", "設備申請、軟體安裝與改善建議"],
-  ];
-  const knowledge = [
-    ["Outlook 同步錯誤排查 SOP", "已發布", "使用 42 次・解決成功率 86%"],
-    ["VPN 已連線但內部系統不可達", "審核中", "由工單轉為知識草稿"],
-    ["釣魚郵件通報與隔離流程", "已發布", "下次複核 2026/08/15"],
-  ];
-  const incidents = [
-    [
-      "Microsoft 365 收信延遲",
-      "候選重大事件",
-      "已關聯 7 張相似工單，影響財務、業務與採購部。",
-    ],
-    [
-      "總部三樓 Wi-Fi 不穩",
-      "監控中",
-      "近 2 小時新增 4 張工單，建議通知網路組。",
-    ],
   ];
   return (
     <section className="management-console governance">
@@ -1609,54 +1687,76 @@ function GovernanceConsole({
           <div className="card-head">
             <div>
               <h3>知識庫治理</h3>
-              <p>以解決成功率與複核日期維持內容品質</p>
+              <p>資料即時取自 D1 文章、工單關聯與解決結果</p>
             </div>
             <button
               className="primary"
-              onClick={() => flash("已建立新的知識文章草稿")}
+              disabled={articlesLoading}
+              onClick={() => void loadKnowledgeArticles()}
             >
-              新增文章
+              {articlesLoading ? "載入中…" : "重新整理"}
             </button>
           </div>
-          {knowledge.map(([title, status, meta]) => (
+          {articlesError && <p className="form-error" role="alert">{articlesError}</p>}
+          {!articlesLoading && !articlesError && articles.length === 0 && (
+            <p className="empty-state">目前尚未建立知識庫文章。</p>
+          )}
+          {articles.map((article) => {
+            const usageCount = Number(article.usageCount) || 0;
+            const resolutionRate = Number(article.resolutionRate) || 0;
+            const reviewDue = article.reviewDueAt
+              ? `下次複核 ${new Date(article.reviewDueAt).toLocaleDateString("zh-TW")}`
+              : "尚未設定複核日期";
+            return (
             <button
-              key={title}
+              key={article.id}
               onClick={() =>
                 onOpen(
-                  title,
-                  `${status}。${meta}。可在正式串接後編輯內容、送審或發布。`,
+                  article.title,
+                  `${article.summary}\n\n分類：${article.category}\n狀態：${article.status}\n使用次數：${usageCount}\n解決成功率：${resolutionRate}%\n${reviewDue}`,
                 )
               }
             >
               <span>
-                <b>{title}</b>
-                <small>{meta}</small>
+                <b>{article.title}</b>
+                <small>使用 {usageCount} 次・解決成功率 {resolutionRate}%・{reviewDue}</small>
               </span>
-              <i className={status === "已發布" ? "good" : ""}>{status}</i>
-              <strong>管理 ›</strong>
+              <i className={article.status === "已發布" ? "good" : ""}>{article.status}</i>
+              <strong>檢視 ›</strong>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
       {tab === "重大事件" && (
         <div className="governance-grid incidents">
-          {incidents.map(([title, status, body]) => (
-            <article className="card governance-card" key={title}>
-              <span className="governance-level p2">{status}</span>
-              <h3>{title}</h3>
-              <p>{body}</p>
+          {incidentsError && <p className="form-error" role="alert">{incidentsError}</p>}
+          {incidentsLoading && <p className="empty-state">正在載入重大事件…</p>}
+          {!incidentsLoading && !incidentsError && majorIncidents.length === 0 && (
+            <p className="empty-state">目前沒有已登錄的重大事件。</p>
+          )}
+          {majorIncidents.map((incident) => (
+            <article className="card governance-card" key={incident.id}>
+              <span className={`governance-level ${incident.severity.toLowerCase()}`}>{incident.severity}・{incident.status}</span>
+              <h3>{incident.title}</h3>
+              <p>{incident.impactScope || "尚未登錄影響範圍"}</p>
+              <small>關聯 {Number(incident.linkedTicketCount) || 0} 張工單・{incident.incidentCommander || "尚未指派事件指揮官"}</small>
               <div className="card-actions">
                 <button
                   className="secondary"
-                  onClick={() => onOpen(title, body)}
+                  onClick={() => onOpen(
+                    incident.title,
+                    `嚴重度：${incident.severity}\n狀態：${incident.status}\n影響範圍：${incident.impactScope || "尚未登錄"}\n關聯工單：${Number(incident.linkedTicketCount) || 0} 張\n主管最後通知：${incident.lastNotifiedAt ? new Date(incident.lastNotifiedAt).toLocaleString("zh-TW") : "尚未通知"}`,
+                  )}
                 >
                   檢視關聯工單
                 </button>
                 <button
                   className="primary"
-                  onClick={() => flash(`${title} 已通知主管確認`)}
+                  disabled={notifyingIncidentId === incident.id}
+                  onClick={() => void notifyIncident(incident)}
                 >
-                  通知主管
+                  {notifyingIncidentId === incident.id ? "通知中…" : "通知主管"}
                 </button>
               </div>
             </article>

@@ -355,6 +355,77 @@ export const ticketEvents = sqliteTable(
   ],
 );
 
+export const knowledgeArticles = sqliteTable(
+  "knowledge_articles",
+  {
+    id: text().primaryKey().notNull(),
+    title: text().notNull(),
+    summary: text().notNull(),
+    content: text(),
+    category: text().default("其他").notNull(),
+    status: text().default("草稿").notNull(),
+    reviewDueAt: text("review_due_at"),
+    publishedAt: text("published_at"),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [index("knowledge_articles_status_review_idx").on(table.status, table.reviewDueAt)],
+);
+
+export const knowledgeArticleTicketLinks = sqliteTable(
+  "knowledge_article_ticket_links",
+  {
+    articleId: text("article_id").notNull().references(() => knowledgeArticles.id, { onDelete: "cascade" }),
+    ticketId: text("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+    resolutionOutcome: text("resolution_outcome").default("used").notNull(),
+    linkedAt: text("linked_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [uniqueIndex("knowledge_article_ticket_links_pk").on(table.articleId, table.ticketId)],
+);
+
+export const majorIncidents = sqliteTable(
+  "major_incidents",
+  {
+    id: text().primaryKey().notNull(),
+    title: text().notNull(),
+    severity: text().default("P2").notNull(),
+    status: text().default("候選重大事件").notNull(),
+    impactScope: text("impact_scope"),
+    incidentCommander: text("incident_commander"),
+    openedAt: text("opened_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    resolvedAt: text("resolved_at"),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [index("major_incidents_status_severity_idx").on(table.status, table.severity, table.openedAt)],
+);
+
+export const majorIncidentTicketLinks = sqliteTable(
+  "major_incident_ticket_links",
+  {
+    incidentId: text("incident_id").notNull().references(() => majorIncidents.id, { onDelete: "cascade" }),
+    ticketId: text("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+    linkedAt: text("linked_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [uniqueIndex("major_incident_ticket_links_pk").on(table.incidentId, table.ticketId)],
+);
+
+export const majorIncidentNotifications = sqliteTable(
+  "major_incident_notifications",
+  {
+    id: text().primaryKey().notNull(),
+    incidentId: text("incident_id").notNull().references(() => majorIncidents.id, { onDelete: "cascade" }),
+    notifiedBy: text("notified_by").notNull(),
+    note: text(),
+    notifiedAt: text("notified_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [index("major_incident_notifications_incident_idx").on(table.incidentId, table.notifiedAt)],
+);
+
 export const assets = sqliteTable(
   "assets",
   {

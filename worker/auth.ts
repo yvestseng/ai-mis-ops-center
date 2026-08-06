@@ -14,6 +14,9 @@ export type Permission =
   | "surveys.read.own"
   | "surveys.read.all"
   | "surveys.followup.manage"
+  | "knowledge.read"
+  | "incidents.read"
+  | "incidents.manage"
   | "rbac.manage"
   | "audit.read";
 
@@ -95,14 +98,14 @@ const systemRoles = [
     code: "admin",
     name: "系統管理人員",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","tickets.assign","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all","surveys.followup.manage","rbac.manage","audit.read"]',
+      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","tickets.assign","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all","surveys.followup.manage","knowledge.read","incidents.read","incidents.manage","rbac.manage","audit.read"]',
   },
   {
     id: "role-operator",
     code: "operator",
     name: "MIS 維運人員",
     permissions:
-      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","tickets.assign","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all"]',
+      '["dashboard.read","tickets.create","tickets.read.own","tickets.read.all","tickets.update","tickets.assign","assets.read","assets.write","services.read","services.write","surveys.read","surveys.read.all","knowledge.read","incidents.read","incidents.manage"]',
   },
   {
     id: "role-user",

@@ -105,6 +105,31 @@ test("priority review queue is protected and reads tickets with their latest eve
   assert.match(tickets, /t\.priority_confirmed_at IS NULL/);
 });
 
+test("knowledge base and major incident APIs use dedicated D1 tables with role protections", async () => {
+  const [worker, governance, auth, migration] = await Promise.all([
+    read("worker/index.ts"),
+    read("worker/governance.ts"),
+    read("worker/auth.ts"),
+    read("drizzle/0016_governance_knowledge_incidents.sql"),
+  ]);
+
+  assert.match(worker, /knowledge-articles/);
+  assert.match(worker, /major-incidents/);
+  assert.match(governance, /requirePermission\(request, db, permission\)/);
+  assert.match(governance, /"knowledge\.read"/);
+  assert.match(governance, /"incidents\.read"/);
+  assert.match(governance, /"incidents\.manage"/);
+  assert.match(governance, /FROM knowledge_articles a/);
+  assert.match(governance, /knowledge_article_ticket_links l/);
+  assert.match(governance, /FROM major_incidents i/);
+  assert.match(governance, /major_incident_notifications/);
+  assert.match(auth, /"knowledge\.read"/);
+  assert.match(auth, /"incidents\.manage"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS knowledge_articles/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS major_incidents/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS major_incident_notifications/);
+});
+
 test("account disabling blocks self-disable and last-admin lockout", async () => {
   const admin = await read("worker/admin.ts");
 

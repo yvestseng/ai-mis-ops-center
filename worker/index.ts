@@ -15,6 +15,7 @@ import { handleAdminRequest, handleSessionRequest } from "./admin";
 import { handleDashboardRequest } from "./dashboard";
 import { handleSupportTeamRequest } from "./support-teams";
 import { handlePriorityRuleRequest } from "./priority-rules";
+import { handleGovernanceRequest } from "./governance";
 import {
   handleChangePasswordRequest,
   handleLoginRequest,
@@ -73,6 +74,18 @@ const worker = {
 
       if (url.pathname === "/api/tickets/priority-reviews") {
         return respond(handleTicketPriorityReviewRequest(request, env.DB));
+      }
+
+      const governanceMatch = url.pathname.match(
+        /^\/api\/governance\/(knowledge-articles|major-incidents)(?:\/([^/]+))?$/,
+      );
+      if (governanceMatch) {
+        return respond(handleGovernanceRequest(
+          request,
+          env.DB,
+          governanceMatch[1] as "knowledge-articles" | "major-incidents",
+          governanceMatch[2],
+        ));
       }
 
       if (url.pathname === "/api/tickets") {
