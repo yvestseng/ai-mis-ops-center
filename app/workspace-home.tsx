@@ -3023,22 +3023,18 @@ export default function Home() {
   }
 
   async function logout() {
+    const loginPath =
+      session?.roleCode === "admin" || session?.roleCode === "operator"
+        ? "/admin/login"
+        : "/user/login";
+
     await fetch("/api/auth/logout", {
       method: "POST",
       credentials: "include",
       cache: "no-store",
     }).catch(() => {});
 
-    setProfile(false);
-    setNotice(false);
-    setTicketDetail(null);
-    setSupportMembers([]);
-    setSelectedTeamId("");
-    setSelectedUserId("");
-    setSession(null);
-    setTickets([]);
-    setAuthenticated(false);
-    setActive("營運總覽");
+    window.location.replace(loginPath);
   }
   async function postTicket(values: Record<string, unknown>) {
     const response = await fetch("/api/tickets", {
