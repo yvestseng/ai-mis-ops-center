@@ -45,6 +45,13 @@ type Ticket = {
   description: string;
   category: string;
   priority: string;
+  classificationService?: string | null;
+  impactLevel?: string | null;
+  classificationSource?: string | null;
+  classificationConfidence?: number | null;
+  priorityRuleName?: string | null;
+  priorityReviewReason?: string | null;
+  slaPolicyCode?: string | null;
   source: string;
   location?: string | null;
   assetTag?: string | null;
@@ -77,6 +84,12 @@ type TicketPriorityReview = Pick<
   | "updatedAt"
 > & {
   prioritySuggestion?: string | null;
+  priorityReviewReason?: string | null;
+  classificationService?: string | null;
+  impactLevel?: string | null;
+  classificationConfidence?: number | null;
+  priorityRuleName?: string | null;
+  slaPolicyCode?: string | null;
   serviceInterruption?: string | null;
   impactScope?: string | null;
   latestEventType?: string | null;
@@ -165,6 +178,32 @@ type PriorityRule = {
 type PriorityRuleDraft = Omit<PriorityRule, "id">;
 type TicketDiagnosis = {
   matched: boolean;
+  service: {
+    key: string;
+    category: string;
+    assignedTeam: string;
+    assignedTeamId?: string | null;
+    confidence: number;
+    evidence: string[];
+  };
+  impact: {
+    level: string;
+    label: string;
+    serviceState: string;
+    confidence: number;
+    evidence: string[];
+  };
+  priority: {
+    code: string;
+    value: string;
+    confidence: number;
+    source: string;
+  };
+  review: {
+    required: boolean;
+    reason?: string | null;
+    requireImpactDetails: boolean;
+  };
   rule: {
     ruleName: string;
     priority: string;
@@ -172,6 +211,15 @@ type TicketDiagnosis = {
     assignedTeam: string;
     priorityReviewRequired: boolean;
     requireImpactDetails: boolean;
+  } | null;
+  sla?: {
+    policyCode: string;
+    priority: string;
+    responseTargetLabel: string;
+    resolutionTargetLabel: string;
+    usesBusinessHours: boolean;
+    escalationAction: string;
+    scopeDescription: string;
   } | null;
   message: string;
 };
@@ -1268,6 +1316,15 @@ function GovernanceConsole({
   const [notifyingIncidentId, setNotifyingIncidentId] = useState<string | null>(null);
   const [governanceSaving, setGovernanceSaving] = useState(false);
   const [candidateTickets, setCandidateTickets] = useState<GovernanceCandidateTicket[]>([]);
+  const [slaPolicies, setSlaPolicies] = useState<Array<{
+    policyCode: string;
+    priority: string;
+    responseTargetLabel: string;
+    resolutionTargetLabel: string;
+    usesBusinessHours: boolean;
+    escalationAction: string;
+    scopeDescription: string;
+  }>>([]);
   const [selectedGovernanceTickets, setSelectedGovernanceTickets] = useState<string[]>([]);
   const [articleDraft, setArticleDraft] = useState({ id: "", title: "", summary: "", content: "", category: "其他", status: "草稿", reviewDueAt: "" });
   const [incidentDraft, setIncidentDraft] = useState({ id: "", title: "", severity: "P2", status: "待確認重大事件", impactScope: "", incidentCommander: "", supervisorName: "", supervisorEmail: "", closureSummary: "" });
@@ -1288,6 +1345,35 @@ function GovernanceConsole({
     comment: "說明清楚，問題已完整排除。",
   });
   const [servicePersonLoading, setServicePersonLoading] = useState(false);
+  const loadSlaPolicies = useCallback(async () => {
+    if (!canManageGovernance) return;
+    try {
+      const response = await fetch("/api/governance/sla-policies", {
+        credentials: "include",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const result = (await response.json()) as {
+        policies?: Array<{
+          policyCode: string; priority: string; responseTargetLabel: string;
+          resolutionTargetLabel: string; usesBusinessHours: boolean;
+          escalationAction: string; scopeDescription: string;
+        }>;
+        message?: string;
+      };
+      if (!response.ok) throw new Error(result.message || "SLA 政策讀取失敗");
+      setSlaPolicies(result.policies || []);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "SLA 政策讀取失敗");
+    }
+  }, [canManageGovernance]);
+
+  useEffect(() => {
+    if (tab !== "SLA 與升級") return;
+    const timer = window.setTimeout(() => void loadSlaPolicies(), 0);
+    return () => window.clearTimeout(timer);
+  }, [tab, loadSlaPolicies]);
+
   const loadPriorityReviews = useCallback(async () => {
     if (!canManageGovernance) return;
     setReviewsLoading(true);
@@ -1643,12 +1729,20 @@ function GovernanceConsole({
         "IT 人員服務調查",
       ]
     : ["系統使用問卷"];
-  const sla = [
-    ["P1 緊急", "15 分鐘", "2 小時", "30 分鐘未回應即通知值班主管", "重大資安事件、全公司服務中斷"],
-    ["P2 高", "30 分鐘", "4 小時", "1 小時未回應即通知團隊主管", "多位使用者或部門服務中斷"],
-    ["P3 中", "4 小時", "1 工作日", "8 小時未回應即建立追蹤通知", "單一使用者一般軟硬體問題"],
-    ["P4 低", "1 工作日", "3 工作日", "2 工作日未回應即提醒處理團隊", "設備申請、軟體安裝與改善建議"],
-  ];
+  const sla = slaPolicies.length
+    ? slaPolicies.map((policy) => [
+        `${policy.policyCode.replace("SLA-", "")} ${policy.priority}`,
+        policy.responseTargetLabel,
+        policy.resolutionTargetLabel,
+        policy.escalationAction,
+        policy.scopeDescription,
+      ])
+    : [
+        ["P1 緊急", "15 分鐘", "2 小時", "30 分鐘未回應即通知值班主管", "重大資安事件、全公司服務中斷"],
+        ["P2 高", "30 分鐘", "4 小時", "1 小時未回應即通知團隊主管", "多位使用者或部門服務中斷"],
+        ["P3 中", "4 小時", "1 工作日", "8 小時未回應即建立追蹤通知", "單一使用者一般軟硬體問題"],
+        ["P4 低", "1 工作日", "3 工作日", "2 工作日未回應即提醒處理團隊", "設備申請、軟體安裝與改善建議"],
+      ];
   return (
     <section className="management-console governance">
       <div className="page-heading">
@@ -1744,7 +1838,7 @@ function GovernanceConsole({
               onClick={() =>
                 onOpen(
                   review.ticketNumber,
-                  `${review.title}。建議優先級：${review.prioritySuggestion || review.priority}；目前優先級：${review.priority}；分類：${review.category}；指派團隊：${review.assignedTeam || "待指派"}；最新事件：${review.latestEventNote || "尚無處理事件"}。請確認分類、優先級及派工對象。`,
+                  `${review.title}。建議優先級：${review.prioritySuggestion || review.priority}；目前優先級：${review.priority}；分類：${review.category}；指派團隊：${review.assignedTeam || "待指派"}；分類服務：${review.classificationService || "未記錄"}；影響層級：${review.impactLevel || "未記錄"}；命中規則：${review.priorityRuleName || "預設規則"}；覆核原因：${review.priorityReviewReason || "高影響工單"}；SLA：${review.slaPolicyCode || "未套用"}；最新事件：${review.latestEventNote || "尚無處理事件"}。請確認分類、優先級及派工對象。`,
                 )
               }
             >
@@ -3193,6 +3287,17 @@ export default function Home() {
       const result = (await response.json()) as TicketDiagnosis & { message?: string };
       if (!response.ok) throw new Error(result.message || "AI 診斷失敗");
       setDiagnosisResult(result);
+      if (result.review?.requireImpactDetails) {
+        if (!serviceInterruption.trim()) {
+          setServiceInterruption(
+            result.impact.serviceState === "outage" ? "服務中斷" :
+            result.impact.serviceState === "degraded" ? "服務異常／降級" : "待確認",
+          );
+        }
+        if (!impactScope.trim() && result.impact.level !== "unknown") {
+          setImpactScope(result.impact.label);
+        }
+      }
       setDiagnosis(true);
     } catch (error) {
       flash(error instanceof Error ? error.message : "AI 診斷失敗，請稍後再試");
@@ -3277,13 +3382,18 @@ export default function Home() {
     if (issue.trim().length < 10) return flash("問題描述至少需要 10 個字");
     setSubmittingTicket(true);
     try {
-      const matchedRule = diagnosisResult?.rule;
-      if (matchedRule?.requireImpactDetails && (!serviceInterruption.trim() || !impactScope.trim())) {
-        flash("已命中優先級規則，請填寫服務中斷狀況與影響範圍");
+      if (diagnosisResult?.review.requireImpactDetails && (!serviceInterruption.trim() || !impactScope.trim())) {
+        flash("高影響工單需要確認服務中斷狀況與影響範圍");
         return;
       }
-      const selectedCategory = matchedRule?.category || (category === "自動判斷" ? aiResult.category : category);
-      const selectedPriority = matchedRule?.priority || (priority === "自動判斷" ? aiResult.priority : priority);
+      const selectedCategory = category === "自動判斷"
+        ? (diagnosisResult?.service.category || aiResult.category)
+        : category;
+      const selectedPriority = priority === "自動判斷"
+        ? (diagnosisResult?.priority.value || aiResult.priority)
+        : priority;
+      const selectedTeam = diagnosisResult?.service.assignedTeam || aiResult.team;
+      const selectedTeamId = diagnosisResult?.service.assignedTeamId || aiResult.teamId;
       const result = await postTicket({
         requesterName: requester,
         requesterEmail,
@@ -3295,9 +3405,9 @@ export default function Home() {
         source: formMode ? "表單報修" : "AI 報修",
         location,
         assetTag,
-        assignedTeam: matchedRule?.assignedTeam || aiResult.team,
-        assignedTeamId: matchedRule ? undefined : aiResult.teamId,
-        aiSuggestedTeamId: matchedRule ? undefined : aiResult.teamId,
+        assignedTeam: selectedTeam,
+        assignedTeamId: selectedTeamId,
+        aiSuggestedTeamId: selectedTeamId,
         serviceInterruption,
         impactScope,
       });
@@ -3850,16 +3960,24 @@ export default function Home() {
               </div>
               {diagnosis && (
                 <div className="diagnosis">
-                  <span>{diagnosisResult?.matched ? diagnosisResult.message : "AI 分析完成（預設分類）"}</span>
-                  <b>
-                    {diagnosisResult?.rule?.category || (category === "自動判斷" ? aiResult.category : category)}
-                  </b>
+                  <span>{diagnosisResult?.message || "四層診斷完成"}</span>
+                  <b>{diagnosisResult?.service.category || aiResult.category}</b>
                   <b className="warn">
-                    {diagnosisResult?.rule?.priority || (priority === "自動判斷" ? aiResult.priority : priority)}優先
+                    {diagnosisResult?.priority.code}－{diagnosisResult?.priority.value || aiResult.priority}優先
                   </b>
-                  <b>{diagnosisResult?.rule?.assignedTeam || aiResult.team}</b>
-                  {diagnosisResult?.rule?.priorityReviewRequired && <em className="diagnosis-review">需要 MIS 覆核</em>}
-                  {diagnosisResult?.rule?.requireImpactDetails && (
+                  <b>{diagnosisResult?.service.assignedTeam || aiResult.team}</b>
+                  {diagnosisResult?.impact && (
+                    <em className="diagnosis-impact">影響範圍：{diagnosisResult.impact.label}</em>
+                  )}
+                  {diagnosisResult?.review.required && (
+                    <em className="diagnosis-review" title={diagnosisResult.review.reason || undefined}>需要 MIS 覆核</em>
+                  )}
+                  {diagnosisResult?.sla && (
+                    <em className="diagnosis-sla">
+                      {diagnosisResult.sla.policyCode}｜首次回應 {diagnosisResult.sla.responseTargetLabel}｜處理目標 {diagnosisResult.sla.resolutionTargetLabel}
+                    </em>
+                  )}
+                  {diagnosisResult?.review.requireImpactDetails && (
                     <div className="diagnosis-impact-fields">
                       <label>服務中斷狀況
                         <input value={serviceInterruption} onChange={(e) => setServiceInterruption(e.target.value)} placeholder="例如：核心交換器連線中斷" />

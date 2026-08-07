@@ -6,6 +6,12 @@ import {
   requirePermission,
   type Identity,
 } from "./auth";
+import {
+  analyzeImpact,
+  classifyService,
+  normalizeSemanticText,
+  priorityCode,
+} from "./ticket-classification";
 
 type TicketPayload = {
   requesterToken?: unknown;
@@ -56,6 +62,7 @@ function validEmail(value: string) {
 }
 
 type PriorityRuleMatch = {
+  id: string;
   ruleName: string;
   priority: string;
   category: string;
@@ -79,13 +86,16 @@ function parseRuleTerms(value: string) {
 
 function matchesTerm(content: string, term: string) {
   // A vertical bar represents alternatives within one required criterion.
-  return term.split("|").some((part) => content.includes(part.trim().toLowerCase()));
+  // Normalize both sides so common Chinese/English synonyms can match the
+  // administrator-maintained rule without hard-coding one exact sentence.
+  return term
+    .split("|")
+    .some((part) => content.includes(normalizeSemanticText(part)));
 }
 
 function ruleMatches(content: string, rule: PriorityRuleMatch) {
   const all = parseRuleTerms(rule.matchAllTerms);
   const any = parseRuleTerms(rule.matchAnyTerms);
-  // Empty rules are a fallback only; keyword rules always take precedence.
   if (!all.length && !any.length) return false;
   return all.every((term) => matchesTerm(content, term)) &&
     (!any.length || any.some((term) => matchesTerm(content, term)));
@@ -94,20 +104,98 @@ function ruleMatches(content: string, rule: PriorityRuleMatch) {
 async function resolvePriorityRule(db: D1Database, title: string, description: string) {
   try {
     const result = await db.prepare(
-      `SELECT rule_name AS ruleName, priority, category, assigned_team AS assignedTeam,
+      `SELECT id, rule_name AS ruleName, priority, category, assigned_team AS assignedTeam,
               priority_review_required AS priorityReviewRequired,
               require_impact_details AS requireImpactDetails,
               match_all_terms AS matchAllTerms, match_any_terms AS matchAnyTerms
        FROM ticket_priority_rules WHERE is_active=1 ORDER BY display_order, rule_name`,
     ).all<PriorityRuleMatch>();
-    const content = `${title} ${description}`.toLowerCase();
+    const content = normalizeSemanticText(`${title} ${description}`);
+    const impact = analyzeImpact(content);
     const rules = result.results ?? [];
-    return rules.find((rule) => ruleMatches(content, rule)) ?? null;
+    const explicit = rules.find((rule) => {
+      if (!ruleMatches(content, rule)) return false;
+      // A broad impact phrase such as "全公司" is not enough for P1 by itself;
+      // it must also describe an actual outage/failure, not a request or notice.
+      if (rule.id === "priority-p1-major-outage" && impact.serviceState !== "outage") return false;
+      return true;
+    });
+    if (explicit) return explicit;
+    // Empty P3-style rules are true fallbacks only after every explicit rule.
+    return rules.find((rule) => {
+      const all = parseRuleTerms(rule.matchAllTerms);
+      const any = parseRuleTerms(rule.matchAnyTerms);
+      return !all.length && !any.length;
+    }) ?? null;
   } catch (error) {
-    // The migration may not yet be applied. Preserve ticket creation until it is.
-    console.warn("priority rules unavailable; using submitted classification", error);
+    console.warn("priority rules unavailable; using semantic classification fallback", error);
     return null;
   }
+}
+
+type SlaPolicy = {
+  policyCode: string;
+  priority: string;
+  responseTargetLabel: string;
+  resolutionTargetLabel: string;
+  responseMinutes: number | null;
+  resolutionMinutes: number | null;
+  usesBusinessHours: number;
+  escalationMinutes: number | null;
+  escalationAction: string;
+  scopeDescription: string;
+};
+
+async function resolveSlaPolicy(db: D1Database, priority: string) {
+  try {
+    return await db.prepare(
+      `SELECT policy_code AS policyCode, priority,
+              response_target_label AS responseTargetLabel,
+              resolution_target_label AS resolutionTargetLabel,
+              response_minutes AS responseMinutes, resolution_minutes AS resolutionMinutes,
+              uses_business_hours AS usesBusinessHours, escalation_minutes AS escalationMinutes,
+              escalation_action AS escalationAction, scope_description AS scopeDescription
+       FROM sla_policies WHERE is_active=1 AND priority=? LIMIT 1`,
+    ).bind(priority).first<SlaPolicy>();
+  } catch (error) {
+    console.warn("SLA policy unavailable", error);
+    return null;
+  }
+}
+
+function buildClassification(title: string, description: string, matchedRule: PriorityRuleMatch | null) {
+  const text = `${title} ${description}`;
+  const service = classifyService(text);
+  const impact = analyzeImpact(text);
+  const genericImpactRule = matchedRule?.id === "priority-p1-major-outage";
+  const fallbackRule = matchedRule?.id === "priority-p3-default-service";
+  const ruleOwnsRouting = Boolean(matchedRule && !genericImpactRule && !fallbackRule);
+  const category = ruleOwnsRouting ? matchedRule!.category : service.category;
+  const assignedTeam = ruleOwnsRouting ? matchedRule!.assignedTeam : service.assignedTeam;
+  const priority = matchedRule?.priority || (impact.serviceState === "request" ? "低" : "中");
+  const confidence = Math.round(Math.min(service.confidence, impact.confidence) * 100) / 100;
+  const reviewReasons: string[] = [];
+  if (matchedRule?.priorityReviewRequired === 1) reviewReasons.push("優先級規則要求 MIS 覆核");
+  if (priority === "緊急" || priority === "高") reviewReasons.push(`${priorityCode(priority)} 高影響工單`);
+  if (impact.level === "unknown" && impact.serviceState === "outage") reviewReasons.push("已辨識服務中斷，但影響範圍尚未確認");
+  if (confidence < 0.7) reviewReasons.push("分類信心不足 70%");
+  return {
+    service,
+    impact,
+    category,
+    assignedTeam,
+    assignedTeamId: ruleOwnsRouting ? undefined : service.assignedTeamId,
+    priority,
+    confidence,
+    priorityReviewRequired: reviewReasons.length > 0,
+    priorityReviewReason: reviewReasons.join("；"),
+    requireImpactDetails: matchedRule?.requireImpactDetails === 1 || priority === "緊急" || priority === "高",
+    classificationSource: fallbackRule
+      ? "semantic+fallback-rule"
+      : matchedRule
+        ? "semantic+priority-rule"
+        : "semantic-fallback",
+  };
 }
 
 async function diagnoseTicket(request: Request, db: D1Database) {
@@ -123,21 +211,46 @@ async function diagnoseTicket(request: Request, db: D1Database) {
     return json({ error: "INVALID_TICKET", message: "請先輸入問題描述。" }, 400);
   }
   const matchedRule = await resolvePriorityRule(db, title, description);
+  const classification = buildClassification(title, description, matchedRule);
+  const sla = await resolveSlaPolicy(db, classification.priority);
   return json({
-    matched: Boolean(matchedRule),
+    matched: Boolean(matchedRule && matchedRule.id !== "priority-p3-default-service"),
+    service: {
+      key: classification.service.serviceKey,
+      category: classification.category,
+      assignedTeam: classification.assignedTeam,
+      assignedTeamId: classification.assignedTeamId || null,
+      confidence: classification.service.confidence,
+      evidence: classification.service.evidence,
+    },
+    impact: classification.impact,
+    priority: {
+      code: priorityCode(classification.priority),
+      value: classification.priority,
+      confidence: classification.confidence,
+      source: classification.classificationSource,
+    },
+    review: {
+      required: classification.priorityReviewRequired,
+      reason: classification.priorityReviewReason || null,
+      requireImpactDetails: classification.requireImpactDetails,
+    },
     rule: matchedRule
       ? {
           ruleName: matchedRule.ruleName,
-          priority: matchedRule.priority,
-          category: matchedRule.category,
-          assignedTeam: matchedRule.assignedTeam,
-          priorityReviewRequired: matchedRule.priorityReviewRequired === 1,
-          requireImpactDetails: matchedRule.requireImpactDetails === 1,
+          priority: classification.priority,
+          category: classification.category,
+          assignedTeam: classification.assignedTeam,
+          priorityReviewRequired: classification.priorityReviewRequired,
+          requireImpactDetails: classification.requireImpactDetails,
         }
       : null,
-    message: matchedRule
-      ? `已命中：${matchedRule.ruleName}`
-      : "未命中自訂規則，將使用 AI 預設分類。",
+    sla: sla ? { ...sla, usesBusinessHours: sla.usesBusinessHours === 1 } : null,
+    message: matchedRule?.id === "priority-p3-default-service"
+      ? "已完成四層診斷，未命中特定規則，套用 P3 預設服務異常政策。"
+      : matchedRule
+        ? `已完成四層診斷並命中：${matchedRule.ruleName}`
+        : "已完成服務分類與影響分析，套用預設 Priority 與覆核政策。",
   });
 }
 
@@ -169,11 +282,13 @@ async function createTicket(
   const assetTag = textValue(payload.assetTag, 80) || null;
   const submittedAssignedTeam = textValue(payload.assignedTeam, 80) || "MIS 服務台";
   const matchedRule = await resolvePriorityRule(db, title, description);
-  const category = matchedRule?.category || submittedCategory;
-  const priority = matchedRule?.priority || submittedPriority;
-  const assignedTeam = matchedRule?.assignedTeam || submittedAssignedTeam;
-  const priorityReviewRequired = matchedRule?.priorityReviewRequired === 1;
-  const requireImpactDetails = matchedRule?.requireImpactDetails === 1;
+  const classification = buildClassification(title, description, matchedRule);
+  const category = matchedRule ? classification.category : (submittedCategory || classification.category);
+  const priority = matchedRule ? classification.priority : (submittedPriority || classification.priority);
+  const assignedTeam = matchedRule ? classification.assignedTeam : (submittedAssignedTeam || classification.assignedTeam);
+  const priorityReviewRequired = classification.priorityReviewRequired;
+  const requireImpactDetails = classification.requireImpactDetails;
+  const slaPolicy = await resolveSlaPolicy(db, priority);
   if (
     !requesterToken ||
     !requesterName ||
@@ -208,8 +323,10 @@ async function createTicket(
             (id, ticket_number, requester_hash, requester_name, requester_email,
              department, title, description, category, priority, priority_suggestion,
              priority_review_required, service_interruption, impact_scope, source,
-             location, asset_tag, assigned_team, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '待處理', ?, ?)`,
+             location, asset_tag, assigned_team, classification_service, impact_level,
+             classification_source, classification_confidence, priority_rule_name,
+             priority_review_reason, sla_policy_code, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '待處理', ?, ?)`,
         )
         .bind(
           id,
@@ -230,6 +347,13 @@ async function createTicket(
           location,
           assetTag,
           assignedTeam,
+          classification.service.serviceKey,
+          classification.impact.level,
+          classification.classificationSource,
+          classification.confidence,
+          matchedRule?.ruleName || null,
+          classification.priorityReviewReason || null,
+          slaPolicy?.policyCode || null,
           now,
           now,
         ),
@@ -246,6 +370,11 @@ async function createTicket(
       priority,
       matchedRule: Boolean(matchedRule),
       priorityReviewRequired,
+      classificationSource: classification.classificationSource,
+      classificationService: classification.service.serviceKey,
+      impactLevel: classification.impact.level,
+      priorityRuleName: matchedRule?.ruleName || null,
+      slaPolicyCode: slaPolicy?.policyCode || null,
     });
   } catch (error) {
     console.error("ticket insert failed", error);
@@ -270,6 +399,13 @@ async function createTicket(
         priority,
         prioritySuggestion: matchedRule ? priority : null,
         priorityReviewRequired,
+        classificationService: classification.service.serviceKey,
+        impactLevel: classification.impact.level,
+        classificationSource: classification.classificationSource,
+        classificationConfidence: classification.confidence,
+        priorityRuleName: matchedRule?.ruleName || null,
+        priorityReviewReason: classification.priorityReviewReason || null,
+        slaPolicyCode: slaPolicy?.policyCode || null,
         serviceInterruption,
         impactScope,
         source,
@@ -311,6 +447,13 @@ async function listTickets(
               t.priority_review_required AS priorityReviewRequired,
               t.priority_confirmed_by AS priorityConfirmedBy,
               t.priority_confirmed_at AS priorityConfirmedAt,
+              t.classification_service AS classificationService,
+              t.impact_level AS impactLevel,
+              t.classification_source AS classificationSource,
+              t.classification_confidence AS classificationConfidence,
+              t.priority_rule_name AS priorityRuleName,
+              t.priority_review_reason AS priorityReviewReason,
+              t.sla_policy_code AS slaPolicyCode,
               t.service_interruption AS serviceInterruption,
               t.impact_scope AS impactScope,
               t.source,
@@ -441,6 +584,12 @@ async function listPriorityReviewTickets(db: D1Database) {
               t.category,
               t.priority,
               t.priority_suggestion AS prioritySuggestion,
+              t.priority_review_reason AS priorityReviewReason,
+              t.classification_service AS classificationService,
+              t.impact_level AS impactLevel,
+              t.classification_confidence AS classificationConfidence,
+              t.priority_rule_name AS priorityRuleName,
+              t.sla_policy_code AS slaPolicyCode,
               t.assigned_team AS assignedTeam,
               t.status,
               t.service_interruption AS serviceInterruption,

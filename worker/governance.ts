@@ -1,7 +1,7 @@
 import { audit, json, requirePermission, type Identity } from "./auth";
 
 type JsonObject = Record<string, unknown>;
-type GovernanceResource = "knowledge-articles" | "major-incidents";
+type GovernanceResource = "knowledge-articles" | "major-incidents" | "sla-policies";
 const articleStatuses = new Set(["草稿", "審核中", "已發布", "已停用"]);
 const incidentStatuses = new Set(["待確認重大事件", "進行中", "監控中", "已結案"]);
 const severities = new Set(["P1", "P2", "P3"]);
@@ -35,6 +35,23 @@ async function replaceLinks(
     }
   }
   await db.batch(statements);
+}
+
+
+async function listSlaPolicies(db: D1Database) {
+  const result = await db.prepare(
+    `SELECT policy_code AS policyCode, priority, response_target_label AS responseTargetLabel,
+            resolution_target_label AS resolutionTargetLabel, uses_business_hours AS usesBusinessHours,
+            escalation_action AS escalationAction, scope_description AS scopeDescription
+     FROM sla_policies WHERE is_active=1
+     ORDER BY CASE priority WHEN '緊急' THEN 1 WHEN '高' THEN 2 WHEN '中' THEN 3 ELSE 4 END`,
+  ).all();
+  return json({
+    policies: (result.results ?? []).map((row) => ({
+      ...row,
+      usesBusinessHours: Number(row.usesBusinessHours) === 1,
+    })),
+  });
 }
 
 async function listKnowledgeArticles(db: D1Database) {
@@ -151,8 +168,15 @@ async function importCandidates(request: Request, db: D1Database, identity: Iden
 
 export function handleGovernanceRequest(request: Request, db: D1Database, resource: GovernanceResource | "candidate-tickets" | "import-candidates", resourceId?: string) {
   const task = async () => {
-    const permission = resource === "knowledge-articles" ? (request.method === "GET" ? "knowledge.read" : "knowledge.manage") : resource === "major-incidents" ? (request.method === "GET" ? "incidents.read" : "incidents.manage") : "governance.import";
+    const permission = resource === "knowledge-articles"
+      ? (request.method === "GET" ? "knowledge.read" : "knowledge.manage")
+      : resource === "major-incidents"
+        ? (request.method === "GET" ? "incidents.read" : "incidents.manage")
+        : resource === "sla-policies"
+          ? "tickets.update"
+          : "governance.import";
     const auth = await requirePermission(request, db, permission); if (!auth.identity) return auth.response!; if (auth.response) return auth.response;
+    if (resource === "sla-policies" && request.method === "GET") return listSlaPolicies(db);
     if (resource === "candidate-tickets" && request.method === "GET") return candidates(db);
     if (resource === "import-candidates" && request.method === "POST") return importCandidates(request, db, auth.identity);
     if (resource === "knowledge-articles") { if (request.method === "GET" && !resourceId) return listKnowledgeArticles(db); if (request.method === "POST" && !resourceId) return saveArticle(request, db, auth.identity); if (request.method === "PATCH" && resourceId) return saveArticle(request, db, auth.identity, resourceId); }

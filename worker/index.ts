@@ -77,13 +77,13 @@ const worker = {
       }
 
       const governanceMatch = url.pathname.match(
-        /^\/api\/governance\/(knowledge-articles|major-incidents|candidate-tickets|import-candidates)(?:\/([^/]+))?$/,
+        /^\/api\/governance\/(knowledge-articles|major-incidents|sla-policies|candidate-tickets|import-candidates)(?:\/([^/]+))?$/,
       );
       if (governanceMatch) {
         return respond(handleGovernanceRequest(
           request,
           env.DB,
-          governanceMatch[1] as "knowledge-articles" | "major-incidents" | "candidate-tickets" | "import-candidates",
+          governanceMatch[1] as "knowledge-articles" | "major-incidents" | "sla-policies" | "candidate-tickets" | "import-candidates",
           governanceMatch[2],
         ));
       }
