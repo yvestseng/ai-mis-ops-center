@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS ticket_classification_reviews (
   suggested_impact_level TEXT NOT NULL,
   suggested_service_state TEXT NOT NULL,
   suggested_confidence REAL NOT NULL,
+  suggested_review_required INTEGER NOT NULL DEFAULT 0 CHECK (suggested_review_required IN (0, 1)),
 
   final_work_type TEXT,
   final_service_key TEXT,
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS ticket_classification_reviews (
   final_impact_level TEXT,
 
   review_result TEXT CHECK (review_result IN ('accepted', 'modified')),
+  work_type_correct INTEGER CHECK (work_type_correct IN (0, 1)),
   priority_correct INTEGER CHECK (priority_correct IN (0, 1)),
   service_correct INTEGER CHECK (service_correct IN (0, 1)),
   team_correct INTEGER CHECK (team_correct IN (0, 1)),
