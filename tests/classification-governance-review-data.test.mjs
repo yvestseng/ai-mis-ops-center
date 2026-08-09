@@ -48,6 +48,22 @@ test("0024 creates an auditable classification review table with immutable sugge
   assert.match(migration, /REFERENCES tickets\(id\) ON DELETE CASCADE/);
 });
 
+test("0024 automatically captures one immutable governance snapshot when a new ticket is inserted", () => {
+  assert.match(
+    migration,
+    /CREATE TRIGGER IF NOT EXISTS ticket_classification_reviews_capture_after_ticket_insert/,
+  );
+  assert.match(migration, /AFTER INSERT ON tickets/);
+  assert.match(migration, /INSERT OR IGNORE INTO ticket_classification_reviews/);
+  assert.match(migration, /NEW\.classification_service/);
+  assert.match(migration, /NEW\.impact_level/);
+  assert.match(migration, /NEW\.classification_confidence/);
+  assert.match(migration, /NEW\.priority_review_required/);
+  assert.match(migration, /WHEN '緊急' THEN 'P1'/);
+  assert.match(migration, /WHEN '低' THEN 'P4'/);
+  assert.match(migration, /SELECT id FROM support_teams WHERE team_name = NEW\.assigned_team/);
+});
+
 test("classification review capture derives suggested values from authoritative ticket data and semantic classifiers", () => {
   assert.match(reviews, /SELECT id, title, description, priority/);
   assert.match(reviews, /classification_service AS classificationService/);
