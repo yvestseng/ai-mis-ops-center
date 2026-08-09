@@ -1,0 +1,98 @@
+[
+  {
+    "id": "CLS-NET-001",
+    "input": "公司WIFI全部中斷無法上網",
+    "expected": {"workType":"incident","serviceKey":"core-network","assignedTeamId":"team-network","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["network","company-wide","outage","p1","positive"]
+  },
+  {
+    "id": "CLS-NET-002",
+    "input": "全公司無法連WiFi",
+    "expected": {"workType":"incident","serviceKey":"core-network","assignedTeamId":"team-network","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["network","company-wide","outage","p1","positive"]
+  },
+  {
+    "id": "CLS-NET-003",
+    "input": "公司的某一台 WiFi AP 故障",
+    "expected": {"workType":"incident","serviceKey":"core-network","assignedTeamId":"team-network","impactLevel":"unknown","serviceState":"outage","priority":"P3"},
+    "tags": ["network","single-device","boundary","negative-p1"]
+  },
+  {
+    "id": "CLS-NET-004",
+    "input": "我的筆電連不上公司 WiFi",
+    "expected": {"workType":"incident","serviceKey":"core-network","assignedTeamId":"team-network","impactLevel":"single_user","serviceState":"outage","priority":"P3"},
+    "tags": ["network","single-user","boundary","negative-p1"]
+  },
+  {
+    "id": "CLS-ID-001",
+    "input": "公司電腦都無法登入網域",
+    "expected": {"workType":"incident","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["identity","company-wide","outage","p1","positive"]
+  },
+  {
+    "id": "CLS-ID-002",
+    "input": "全公司電腦無法登入AD",
+    "expected": {"workType":"incident","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["identity","company-wide","outage","p1","positive"]
+  },
+  {
+    "id": "CLS-ID-003",
+    "input": "所有員工都無法登入網域",
+    "expected": {"workType":"incident","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["identity","company-wide","outage","p1","positive"]
+  },
+  {
+    "id": "CLS-ID-004",
+    "input": "我的電腦無法登入網域",
+    "expected": {"workType":"incident","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"single_user","serviceState":"outage","priority":"P3"},
+    "tags": ["identity","single-user","boundary","negative-p1"]
+  },
+  {
+    "id": "CLS-ID-005",
+    "input": "某一台電腦登入網域失敗",
+    "expected": {"workType":"incident","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"unknown","serviceState":"outage","priority":"P3"},
+    "tags": ["identity","single-device","boundary","negative-p1"]
+  },
+  {
+    "id": "CLS-MAIL-001",
+    "input": "全公司 Outlook 都無法寄信",
+    "expected": {"workType":"incident","serviceKey":"microsoft-365-mail","assignedTeamId":"team-system","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["mail","company-wide","outage","p1"]
+  },
+  {
+    "id": "CLS-MAIL-002",
+    "input": "我的 Outlook 無法寄信",
+    "expected": {"workType":"incident","serviceKey":"microsoft-365-mail","assignedTeamId":"team-system","impactLevel":"single_user","serviceState":"outage","priority":"P3"},
+    "tags": ["mail","single-user","boundary"]
+  },
+  {
+    "id": "CLS-DB-001",
+    "input": "我的 MySQL client 無法連線",
+    "expected": {"workType":"incident","serviceKey":"database","assignedTeamId":"team-database","impactLevel":"single_user","serviceState":"outage","priority":"P3"},
+    "tags": ["database","single-user","incident"]
+  },
+  {
+    "id": "CLS-APP-001",
+    "input": "我的 ERP 程式錯誤無法使用",
+    "expected": {"workType":"incident","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"single_user","serviceState":"outage","priority":"P3"},
+    "tags": ["application","single-user","incident"]
+  },
+  {
+    "id": "CLS-REQ-001",
+    "input": "我要申請安裝 AutoCAD",
+    "expected": {"workType":"request","serviceKey":"endpoint","assignedTeamId":"team-endpoint","impactLevel":"unknown","serviceState":"request","priority":"P4"},
+    "tags": ["request","software","p4"]
+  },
+  {
+    "id": "CLS-REQ-002",
+    "input": "申請一台新的筆電",
+    "expected": {"workType":"request","serviceKey":"endpoint","assignedTeamId":"team-endpoint","impactLevel":"unknown","serviceState":"request","priority":"P4"},
+    "tags": ["request","device","p4"]
+  },
+  {
+    "id": "CLS-REQ-003",
+    "input": "申請開通帳號權限",
+    "expected": {"workType":"request","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"unknown","serviceState":"request","priority":"P4"},
+    "tags": ["request","identity","p4"]
+  }
+]
