@@ -396,9 +396,15 @@ Release stopped.
 
 function Invoke-ReviewedD1Migrations {
     param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$ReviewedMigrationFiles
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyCollection()]
+        [AllowNull()]
+        [string[]]$ReviewedMigrationFiles = @()
     )
+
+    if ($null -eq $ReviewedMigrationFiles) {
+        $ReviewedMigrationFiles = @()
+    }
 
     $status = Get-D1MigrationStatus
 
