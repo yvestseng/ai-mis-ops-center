@@ -87,6 +87,9 @@
 .summaryCard,
 .metricCard,
 .breakdownCard,
+.trendCard,
+.operationsCard,
+.operationsSection,
 .dataQuality,
 .loadingPanel,
 .errorPanel {
@@ -206,6 +209,102 @@
 .baseline {
   background: #eef4ff;
   color: #155eef;
+}
+
+.na {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.operationsSection {
+  padding: 20px;
+  margin-bottom: 14px;
+}
+
+.sectionHead {
+  margin-bottom: 16px;
+}
+
+.sectionHead h2 {
+  margin: 5px 0 7px;
+  font-size: 20px;
+}
+
+.sectionHead p {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.operationsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.operationsCard {
+  padding: 18px;
+}
+
+.operationsTitle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.operationsTitle svg {
+  color: #155eef;
+}
+
+.operationsCard strong {
+  display: block;
+  margin-top: 12px;
+  font-size: 24px;
+}
+
+.operationsCard p {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.operationsCard small {
+  color: #344054;
+  font-weight: 700;
+}
+
+.sampleCounts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.sampleCounts span {
+  display: block;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #667085;
+  font-size: 11px;
+}
+
+.sampleCounts b {
+  display: block;
+  margin-top: 3px;
+  color: #101828;
+  font-size: 18px;
+}
+
+.trendCard {
+  padding: 20px;
+  margin-bottom: 14px;
 }
 
 .dataQuality {
@@ -337,8 +436,13 @@
 
   .summaryGrid,
   .metricGrid,
+  .operationsGrid,
   .breakdownGrid,
   .dataQuality {
+    grid-template-columns: 1fr;
+  }
+
+  .sampleCounts {
     grid-template-columns: 1fr;
   }
 

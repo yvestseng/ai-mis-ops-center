@@ -6,10 +6,12 @@ import {
   Activity,
   ArrowLeft,
   BadgeCheck,
+  BarChart3,
   BrainCircuit,
   RefreshCw,
   ShieldCheck,
   Target,
+  TriangleAlert,
 } from "lucide-react";
 import styles from "./classification-quality-dashboard.module.css";
 
@@ -31,10 +33,56 @@ type BreakdownRow = {
   correct: number | string;
 };
 
+type BaselineMaturity = {
+  code: "insufficient" | "early" | "usable" | "baseline_v1";
+  label: string;
+  reviewed: number;
+  nextTarget: number | null;
+  remaining: number;
+};
+
+type P1SampleAdequacy = {
+  predictedP1: number;
+  actualP1: number;
+  truePositiveP1: number;
+  minimumActualP1: number;
+  sufficient: boolean;
+  label: string;
+};
+
+type WeeklyTrendRow = {
+  week: string;
+  reviewed: number;
+  overallClassificationAccuracy: number | null;
+  serviceAccuracy: number | null;
+  priorityAccuracy: number | null;
+  p1Precision: number | null;
+  p1Recall: number | null;
+  aiRecommendationAcceptanceRate: number | null;
+};
+
+type MisclassificationRow = {
+  dimension: string;
+  reviewed: number;
+  errors: number;
+  errorRate: number | null;
+};
+
+type BaselineOperations = {
+  maturity: BaselineMaturity;
+  p1SampleAdequacy: P1SampleAdequacy;
+  weeklyTrend: WeeklyTrendRow[];
+  topMisclassifications: {
+    services: MisclassificationRow[];
+    priorities: MisclassificationRow[];
+  };
+};
+
 type KpiResponse = {
   baseline: Baseline;
   priorityBreakdown: BreakdownRow[];
   serviceBreakdown: BreakdownRow[];
+  operations: BaselineOperations;
   message?: string;
 };
 
@@ -89,11 +137,11 @@ const metricConfig: MetricConfig[] = [
 ];
 
 function formatRate(value: number | null) {
-  return value == null ? "尚無資料" : `${Math.round(value * 1000) / 10}%`;
+  return value == null ? "N/A" : `${Math.round(value * 1000) / 10}%`;
 }
 
 function statusFor(value: number | null, target?: number) {
-  if (value == null) return { label: "觀察", className: styles.watch };
+  if (value == null) return { label: "N/A", className: styles.na };
   if (target == null) return { label: "Baseline", className: styles.baseline };
   if (value >= target) return { label: "達標", className: styles.good };
   if (value >= target - 0.05) return { label: "觀察", className: styles.watch };
@@ -141,7 +189,7 @@ export default function ClassificationQualityDashboardPage() {
   }, [load]);
 
   const reviewedCoverage = useMemo(() => {
-    if (!data?.baseline.totalCaptured) return 0;
+    if (!data?.baseline.totalCaptured) return null;
     return data.baseline.totalReviewed / data.baseline.totalCaptured;
   }, [data]);
 
@@ -230,6 +278,63 @@ export default function ClassificationQualityDashboardPage() {
               })}
             </section>
 
+            <section className={styles.operationsSection}>
+              <div className={styles.sectionHead}>
+                <div>
+                  <span className={styles.eyebrow}>BASELINE OPERATIONS V1</span>
+                  <h2>Baseline Readiness & Operational Signals</h2>
+                  <p>樣本量成熟度與 P1 樣本充分度用來判斷 KPI 是否可被正式解讀，不把樣本不足誤判成品質失敗。</p>
+                </div>
+              </div>
+
+              <div className={styles.operationsGrid}>
+                <article className={styles.operationsCard}>
+                  <div className={styles.operationsTitle}>
+                    <BarChart3 size={18} />
+                    <span>資料量成熟度</span>
+                  </div>
+                  <strong>{data.operations.maturity.label}</strong>
+                  <p>已完成 MIS 覆核 {data.operations.maturity.reviewed} 筆。</p>
+                  {data.operations.maturity.nextTarget == null ? (
+                    <small>已達 Baseline v1 正式門檻。</small>
+                  ) : (
+                    <small>
+                      下一門檻 {data.operations.maturity.nextTarget} 筆，尚需 {data.operations.maturity.remaining} 筆。
+                    </small>
+                  )}
+                </article>
+
+                <article className={styles.operationsCard}>
+                  <div className={styles.operationsTitle}>
+                    <TriangleAlert size={18} />
+                    <span>P1 樣本充分度</span>
+                  </div>
+                  <strong>{data.operations.p1SampleAdequacy.label}</strong>
+                  <div className={styles.sampleCounts}>
+                    <span>Predicted P1 <b>{data.operations.p1SampleAdequacy.predictedP1}</b></span>
+                    <span>Actual P1 <b>{data.operations.p1SampleAdequacy.actualP1}</b></span>
+                    <span>True Positive <b>{data.operations.p1SampleAdequacy.truePositiveP1}</b></span>
+                  </div>
+                  <small>Actual P1 最低觀察門檻：{data.operations.p1SampleAdequacy.minimumActualP1} 筆。</small>
+                </article>
+              </div>
+
+              <WeeklyTrendTable rows={data.operations.weeklyTrend} />
+
+              <div className={styles.breakdownGrid}>
+                <MisclassificationTable
+                  title="Top Service Misclassifications"
+                  description="依 MIS 最終 Service 聚合，優先找出規則或 routing 最常誤判的服務類別。"
+                  rows={data.operations.topMisclassifications.services}
+                />
+                <MisclassificationTable
+                  title="Top Priority Misclassifications"
+                  description="依 MIS 最終 Priority 聚合，檢視優先級判斷最需要治理的區域。"
+                  rows={data.operations.topMisclassifications.priorities}
+                />
+              </div>
+            </section>
+
             <section className={styles.dataQuality}>
               <div>
                 <span className={styles.eyebrow}>DATA QUALITY</span>
@@ -244,7 +349,7 @@ export default function ClassificationQualityDashboardPage() {
                   <b>{formatRate(reviewedCoverage)}</b>
                 </div>
                 <div className={styles.progressTrack}>
-                  <span style={{ width: `${Math.min(reviewedCoverage * 100, 100)}%` }} />
+                  <span style={{ width: `${Math.min((reviewedCoverage ?? 0) * 100, 100)}%` }} />
                 </div>
               </div>
             </section>
@@ -269,6 +374,100 @@ export default function ClassificationQualityDashboardPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function WeeklyTrendTable({ rows }: { rows: WeeklyTrendRow[] }) {
+  return (
+    <article className={styles.trendCard}>
+      <div className={styles.cardHead}>
+        <div>
+          <h2>Weekly KPI Trend</h2>
+          <p>最近 12 週 MIS Reviewed 樣本的品質趨勢；沒有分母的 KPI 顯示 N/A。</p>
+        </div>
+      </div>
+      {rows.length ? (
+        <div className={styles.tableWrap}>
+          <table>
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Reviewed</th>
+                <th>Overall</th>
+                <th>Service</th>
+                <th>Priority</th>
+                <th>P1 Precision</th>
+                <th>P1 Recall</th>
+                <th>Acceptance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.week}>
+                  <td><b>{row.week}</b></td>
+                  <td>{row.reviewed}</td>
+                  <td>{formatRate(row.overallClassificationAccuracy)}</td>
+                  <td>{formatRate(row.serviceAccuracy)}</td>
+                  <td>{formatRate(row.priorityAccuracy)}</td>
+                  <td>{formatRate(row.p1Precision)}</td>
+                  <td>{formatRate(row.p1Recall)}</td>
+                  <td>{formatRate(row.aiRecommendationAcceptanceRate)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className={styles.empty}>尚無足夠的 MIS Reviewed 資料形成每週 KPI 趨勢。</div>
+      )}
+    </article>
+  );
+}
+
+function MisclassificationTable({
+  title,
+  description,
+  rows,
+}: {
+  title: string;
+  description: string;
+  rows: MisclassificationRow[];
+}) {
+  return (
+    <article className={styles.breakdownCard}>
+      <div className={styles.cardHead}>
+        <div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+      </div>
+      {rows.length ? (
+        <div className={styles.tableWrap}>
+          <table>
+            <thead>
+              <tr>
+                <th>Dimension</th>
+                <th>Reviewed</th>
+                <th>Errors</th>
+                <th>Error Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.dimension}>
+                  <td><b>{row.dimension}</b></td>
+                  <td>{row.reviewed}</td>
+                  <td>{row.errors}</td>
+                  <td>{formatRate(row.errorRate)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className={styles.empty}>目前沒有已覆核的誤判資料。</div>
+      )}
+    </article>
   );
 }
 
