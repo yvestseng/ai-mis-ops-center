@@ -32,6 +32,8 @@ export type WorkTypeClassification = {
 
 const semanticAliases: Array<[RegExp, string]> = [
   [/整間公司|整個公司|全體同仁|全公司所有人|公司所有人|所有員工|全員/g, "全公司"],
+  [/公司(?:的)?(?:(?:所有|全部|全數)(?:電腦|pc|computer)|(?:電腦|pc|computer)(?:都|全部|全數))(?:無法|不能)(?:登入|登錄|log\s*in|logon)(?:公司)?(?:網域|domain|ad|active directory)/g, "全公司 網域登入 failure down"],
+  [/全公司(?:的)?(?:所有|全部|全數)?(?:電腦|pc|computer)?(?:都|全部|全數)?(?:無法|不能)(?:登入|登錄|log\s*in|logon)(?:公司)?(?:網域|domain|ad|active directory)/g, "全公司 網域登入 failure down"],
   [/(?:公司|全公司)(?:的)?(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:全部|全面|全數)(?:中斷|斷線|斷網|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)|(?:公司|全公司)(?:的)?(?:全部|全面|全數)(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:中斷|斷線|斷網|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
   [/全公司(?:的)?(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:中斷|斷線|斷網|故障|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
   [/全公司(?:都|全部|全數)?(?:無法|不能)(?:連|連線|連上|連接)?(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)/g, "全公司 網路 服務中斷"],
@@ -202,18 +204,21 @@ export function classifyService(rawText: string): ServiceClassification {
       patterns: [[/erp|應用系統|程式錯誤|application error/, "應用系統"]],
     },
     {
+      serviceKey: "identity-system",
+      category: "系統與帳號",
+      assignedTeam: "系統維運組",
+      assignedTeamId: "team-system",
+      patterns: [
+        [/(?:網域|domain|active directory|ldap|entra).*(?:登入|登錄|login|logon|authentication|驗證)|(?:登入|登錄|login|logon|authentication|驗證).*(?:網域|domain|active directory|ldap|entra)/, "網域 / 身分驗證"],
+        [/windows|伺服器|server|帳號|網域|active directory|ldap|entra|登入/, "系統 / 帳號"],
+      ],
+    },
+    {
       serviceKey: "endpoint",
       category: "電腦與周邊設備",
       assignedTeam: "電腦與設備維護組",
       assignedTeamId: "team-endpoint",
       patterns: [[/印表機|筆電|電腦|螢幕|鍵盤|設備申請|申請設備|更換電池|軟體安裝|安裝.*(軟體|office|autocad|adobe|應用程式|程式)|office\s*\d{4}|autocad|adobe|printer|laptop/, "端點／軟體服務"]],
-    },
-    {
-      serviceKey: "identity-system",
-      category: "系統與帳號",
-      assignedTeam: "系統維運組",
-      assignedTeamId: "team-system",
-      patterns: [[/windows|伺服器|server|帳號|登入|active directory|ldap|entra/, "系統 / 帳號"]],
     },
   ];
 
