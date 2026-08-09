@@ -270,6 +270,13 @@ export const tickets = sqliteTable(
     priorityReviewRequired: integer("priority_review_required", { mode: "boolean" }).default(false).notNull(),
     priorityConfirmedBy: text("priority_confirmed_by"),
     priorityConfirmedAt: text("priority_confirmed_at"),
+    classificationService: text("classification_service"),
+    impactLevel: text("impact_level"),
+    classificationSource: text("classification_source"),
+    classificationConfidence: real("classification_confidence"),
+    priorityRuleName: text("priority_rule_name"),
+    priorityReviewReason: text("priority_review_reason"),
+    slaPolicyCode: text("sla_policy_code"),
     serviceInterruption: text("service_interruption"),
     impactScope: text("impact_scope"),
     source: text().notNull(),
@@ -301,6 +308,31 @@ export const tickets = sqliteTable(
     uniqueIndex("tickets_ticket_number_uq").on(
       table.ticketNumber,
     ),
+  ],
+);
+
+export const slaPolicies = sqliteTable(
+  "sla_policies",
+  {
+    id: text().primaryKey().notNull(),
+    policyCode: text("policy_code").notNull(),
+    priority: text().notNull(),
+    responseTargetLabel: text("response_target_label").notNull(),
+    resolutionTargetLabel: text("resolution_target_label").notNull(),
+    responseMinutes: integer("response_minutes"),
+    resolutionMinutes: integer("resolution_minutes"),
+    usesBusinessHours: integer("uses_business_hours", { mode: "boolean" }).default(false).notNull(),
+    escalationMinutes: integer("escalation_minutes"),
+    escalationAction: text("escalation_action").notNull(),
+    scopeDescription: text("scope_description").notNull(),
+    isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
+    updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    uniqueIndex("sla_policies_code_uq").on(table.policyCode),
+    uniqueIndex("sla_policies_priority_uq").on(table.priority),
+    index("sla_policies_active_priority_idx").on(table.isActive, table.priority),
   ],
 );
 

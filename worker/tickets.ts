@@ -9,6 +9,7 @@ import {
 import {
   analyzeImpact,
   classifyService,
+  classifyWorkType,
   normalizeSemanticText,
   priorityCode,
 } from "./ticket-classification";
@@ -112,9 +113,22 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
     ).all<PriorityRuleMatch>();
     const content = normalizeSemanticText(`${title} ${description}`);
     const impact = analyzeImpact(content);
+    const workType = classifyWorkType(content);
     const rules = result.results ?? [];
+
+    // First split the ticket into incident vs request. A clear request must
+    // enter the P4 request policy before the generic P3 incident fallback.
+    if (workType.kind === "request") {
+      const requestRule = rules.find((rule) => rule.id === "priority-p4-request");
+      if (requestRule) return requestRule;
+      return null;
+    }
+
     const explicit = rules.find((rule) => {
       if (!ruleMatches(content, rule)) return false;
+      // P4 is reserved for request-type tickets. Wording such as
+      // "安裝後失敗" must remain an incident and must not be downgraded.
+      if (rule.id === "priority-p4-request") return false;
       // A broad impact phrase such as "全公司" is not enough for P1 by itself;
       // it must also describe an actual outage/failure, not a request or notice.
       if (rule.id === "priority-p1-major-outage" && impact.serviceState !== "outage") return false;
@@ -163,22 +177,80 @@ async function resolveSlaPolicy(db: D1Database, priority: string) {
   }
 }
 
+
+type SlaRuntimeStatus = "pending" | "met" | "breached";
+
+type SlaRuntime = {
+  slaStartedAt: string | null;
+  responseDueAt: string | null;
+  resolutionDueAt: string | null;
+  escalationDueAt: string | null;
+  slaResponseStatus: SlaRuntimeStatus | null;
+  slaResolutionStatus: SlaRuntimeStatus | null;
+};
+
+function addMinutes(startIso: string, minutes: number | null) {
+  if (minutes == null) return null;
+  return new Date(Date.parse(startIso) + minutes * 60_000).toISOString();
+}
+
+function buildSlaRuntime(startIso: string, policy: SlaPolicy | null): SlaRuntime {
+  if (!policy) {
+    return {
+      slaStartedAt: null,
+      responseDueAt: null,
+      resolutionDueAt: null,
+      escalationDueAt: null,
+      slaResponseStatus: null,
+      slaResolutionStatus: null,
+    };
+  }
+
+  // P3/P4 使用工作時段時，必須由後續 business calendar / holiday engine
+  // 計算真正截止時間；這裡不把工作日 SLA 錯算成 24x7。
+  const usesBusinessHours = policy.usesBusinessHours === 1;
+
+  return {
+    slaStartedAt: startIso,
+    responseDueAt: usesBusinessHours ? null : addMinutes(startIso, policy.responseMinutes),
+    resolutionDueAt: usesBusinessHours ? null : addMinutes(startIso, policy.resolutionMinutes),
+    escalationDueAt: usesBusinessHours ? null : addMinutes(startIso, policy.escalationMinutes),
+    slaResponseStatus: "pending",
+    slaResolutionStatus: "pending",
+  };
+}
+
+function evaluateSlaStatus(
+  completedAt: string | null,
+  dueAt: string | null,
+  currentStatus: SlaRuntimeStatus | null,
+): SlaRuntimeStatus | null {
+  if (!completedAt) return currentStatus;
+  if (!dueAt) return currentStatus ?? "pending";
+  return Date.parse(completedAt) <= Date.parse(dueAt) ? "met" : "breached";
+}
+
+
 function buildClassification(title: string, description: string, matchedRule: PriorityRuleMatch | null) {
   const text = `${title} ${description}`;
   const service = classifyService(text);
   const impact = analyzeImpact(text);
+  const workType = classifyWorkType(text);
   const genericImpactRule = matchedRule?.id === "priority-p1-major-outage";
   const fallbackRule = matchedRule?.id === "priority-p3-default-service";
-  const ruleOwnsRouting = Boolean(matchedRule && !genericImpactRule && !fallbackRule);
+  const genericRequestRule = matchedRule?.id === "priority-p4-request";
+  const ruleOwnsRouting = Boolean(
+    matchedRule && !genericImpactRule && !fallbackRule && !genericRequestRule,
+  );
   const category = ruleOwnsRouting ? matchedRule!.category : service.category;
   const assignedTeam = ruleOwnsRouting ? matchedRule!.assignedTeam : service.assignedTeam;
-  const priority = matchedRule?.priority || (impact.serviceState === "request" ? "低" : "中");
+  const priority = workType.kind === "request" ? "低" : matchedRule?.priority || "中";
   const confidence = Math.round(Math.min(service.confidence, impact.confidence) * 100) / 100;
   const reviewReasons: string[] = [];
   if (matchedRule?.priorityReviewRequired === 1) reviewReasons.push("優先級規則要求 MIS 覆核");
   if (priority === "緊急" || priority === "高") reviewReasons.push(`${priorityCode(priority)} 高影響工單`);
   if (impact.level === "unknown" && impact.serviceState === "outage") reviewReasons.push("已辨識服務中斷，但影響範圍尚未確認");
-  if (confidence < 0.7) reviewReasons.push("分類信心不足 70%");
+  if (confidence < 0.7 && workType.kind !== "request") reviewReasons.push("分類信心不足 70%");
   return {
     service,
     impact,
@@ -189,12 +261,16 @@ function buildClassification(title: string, description: string, matchedRule: Pr
     confidence,
     priorityReviewRequired: reviewReasons.length > 0,
     priorityReviewReason: reviewReasons.join("；"),
-    requireImpactDetails: matchedRule?.requireImpactDetails === 1 || priority === "緊急" || priority === "高",
-    classificationSource: fallbackRule
-      ? "semantic+fallback-rule"
-      : matchedRule
-        ? "semantic+priority-rule"
-        : "semantic-fallback",
+    requireImpactDetails:
+      workType.kind !== "request" &&
+      (matchedRule?.requireImpactDetails === 1 || priority === "緊急" || priority === "高"),
+    classificationSource: genericRequestRule
+      ? "semantic+request-rule"
+      : fallbackRule
+        ? "semantic+fallback-rule"
+        : matchedRule
+          ? "semantic+priority-rule"
+          : "semantic-fallback",
   };
 }
 
@@ -246,11 +322,13 @@ async function diagnoseTicket(request: Request, db: D1Database) {
         }
       : null,
     sla: sla ? { ...sla, usesBusinessHours: sla.usesBusinessHours === 1 } : null,
-    message: matchedRule?.id === "priority-p3-default-service"
-      ? "已完成四層診斷，未命中特定規則，套用 P3 預設服務異常政策。"
-      : matchedRule
-        ? `已完成四層診斷並命中：${matchedRule.ruleName}`
-        : "已完成服務分類與影響分析，套用預設 Priority 與覆核政策。",
+    message: matchedRule?.id === "priority-p4-request"
+      ? "已完成四層診斷，辨識為服務申請，套用 P4 一般申請與建議政策。"
+      : matchedRule?.id === "priority-p3-default-service"
+        ? "已完成四層診斷，未命中特定規則，套用 P3 預設服務異常政策。"
+        : matchedRule
+          ? `已完成四層診斷並命中：${matchedRule.ruleName}`
+          : "已完成服務分類與影響分析，套用預設 Priority 與覆核政策。",
   });
 }
 
@@ -273,14 +351,14 @@ async function createTicket(
     identity.department || textValue(payload.department, 80) || "未設定";
   const title = textValue(payload.title, 120);
   const description = textValue(payload.description, 3000);
-  const submittedCategory = textValue(payload.category, 40) || "其他";
+  const submittedCategory = textValue(payload.category, 40);
   const submittedPriority = textValue(payload.priority, 10);
   const serviceInterruption = textValue(payload.serviceInterruption, 30) || null;
   const impactScope = textValue(payload.impactScope, 300) || null;
   const source = textValue(payload.source, 30) || "AI 報修";
   const location = textValue(payload.location, 120) || null;
   const assetTag = textValue(payload.assetTag, 80) || null;
-  const submittedAssignedTeam = textValue(payload.assignedTeam, 80) || "MIS 服務台";
+  const submittedAssignedTeam = textValue(payload.assignedTeam, 80);
   const matchedRule = await resolvePriorityRule(db, title, description);
   const classification = buildClassification(title, description, matchedRule);
   const category = matchedRule ? classification.category : (submittedCategory || classification.category);
@@ -310,8 +388,10 @@ async function createTicket(
   }
 
   const id = crypto.randomUUID();
-  const number = ticketNumber(new Date());
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const number = ticketNumber(nowDate);
+  const now = nowDate.toISOString();
+  const slaRuntime = buildSlaRuntime(now, slaPolicy);
   const requesterHash = await sha256(requesterToken);
   const initialNote = `工單已由${source}建立，優先級：${priority}，指派至${assignedTeam}${matchedRule ? "（已套用自動判斷規則）" : ""}。`;
 
@@ -325,8 +405,10 @@ async function createTicket(
              priority_review_required, service_interruption, impact_scope, source,
              location, asset_tag, assigned_team, classification_service, impact_level,
              classification_source, classification_confidence, priority_rule_name,
-             priority_review_reason, sla_policy_code, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '待處理', ?, ?)`,
+             priority_review_reason, sla_policy_code, sla_started_at, response_due_at,
+             resolution_due_at, escalation_due_at, sla_response_status,
+             sla_resolution_status, sla_escalation_level, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '待處理', ?, ?)`,
         )
         .bind(
           id,
@@ -354,6 +436,12 @@ async function createTicket(
           matchedRule?.ruleName || null,
           classification.priorityReviewReason || null,
           slaPolicy?.policyCode || null,
+          slaRuntime.slaStartedAt,
+          slaRuntime.responseDueAt,
+          slaRuntime.resolutionDueAt,
+          slaRuntime.escalationDueAt,
+          slaRuntime.slaResponseStatus,
+          slaRuntime.slaResolutionStatus,
           now,
           now,
         ),
@@ -375,6 +463,10 @@ async function createTicket(
       impactLevel: classification.impact.level,
       priorityRuleName: matchedRule?.ruleName || null,
       slaPolicyCode: slaPolicy?.policyCode || null,
+      slaStartedAt: slaRuntime.slaStartedAt,
+      responseDueAt: slaRuntime.responseDueAt,
+      resolutionDueAt: slaRuntime.resolutionDueAt,
+      escalationDueAt: slaRuntime.escalationDueAt,
     });
   } catch (error) {
     console.error("ticket insert failed", error);
@@ -406,6 +498,16 @@ async function createTicket(
         priorityRuleName: matchedRule?.ruleName || null,
         priorityReviewReason: classification.priorityReviewReason || null,
         slaPolicyCode: slaPolicy?.policyCode || null,
+        slaStartedAt: slaRuntime.slaStartedAt,
+        responseDueAt: slaRuntime.responseDueAt,
+        resolutionDueAt: slaRuntime.resolutionDueAt,
+        escalationDueAt: slaRuntime.escalationDueAt,
+        firstResponseAt: null,
+        resolvedAt: null,
+        slaResponseStatus: slaRuntime.slaResponseStatus,
+        slaResolutionStatus: slaRuntime.slaResolutionStatus,
+        slaEscalationLevel: 0,
+        slaLastEscalatedAt: null,
         serviceInterruption,
         impactScope,
         source,
@@ -454,6 +556,16 @@ async function listTickets(
               t.priority_rule_name AS priorityRuleName,
               t.priority_review_reason AS priorityReviewReason,
               t.sla_policy_code AS slaPolicyCode,
+              t.sla_started_at AS slaStartedAt,
+              t.response_due_at AS responseDueAt,
+              t.resolution_due_at AS resolutionDueAt,
+              t.escalation_due_at AS escalationDueAt,
+              t.first_response_at AS firstResponseAt,
+              t.resolved_at AS resolvedAt,
+              t.sla_response_status AS slaResponseStatus,
+              t.sla_resolution_status AS slaResolutionStatus,
+              t.sla_escalation_level AS slaEscalationLevel,
+              t.sla_last_escalated_at AS slaLastEscalatedAt,
               t.service_interruption AS serviceInterruption,
               t.impact_scope AS impactScope,
               t.source,
@@ -517,6 +629,23 @@ async function getTicket(
                 t.priority_review_required AS priorityReviewRequired,
                 t.priority_confirmed_by AS priorityConfirmedBy,
                 t.priority_confirmed_at AS priorityConfirmedAt,
+                t.classification_service AS classificationService,
+                t.impact_level AS impactLevel,
+                t.classification_source AS classificationSource,
+                t.classification_confidence AS classificationConfidence,
+                t.priority_rule_name AS priorityRuleName,
+                t.priority_review_reason AS priorityReviewReason,
+                t.sla_policy_code AS slaPolicyCode,
+                t.sla_started_at AS slaStartedAt,
+                t.response_due_at AS responseDueAt,
+                t.resolution_due_at AS resolutionDueAt,
+                t.escalation_due_at AS escalationDueAt,
+                t.first_response_at AS firstResponseAt,
+                t.resolved_at AS resolvedAt,
+                t.sla_response_status AS slaResponseStatus,
+                t.sla_resolution_status AS slaResolutionStatus,
+                t.sla_escalation_level AS slaEscalationLevel,
+                t.sla_last_escalated_at AS slaLastEscalatedAt,
                 t.service_interruption AS serviceInterruption,
                 t.impact_scope AS impactScope,
                 t.source,
@@ -590,6 +719,16 @@ async function listPriorityReviewTickets(db: D1Database) {
               t.classification_confidence AS classificationConfidence,
               t.priority_rule_name AS priorityRuleName,
               t.sla_policy_code AS slaPolicyCode,
+              t.sla_started_at AS slaStartedAt,
+              t.response_due_at AS responseDueAt,
+              t.resolution_due_at AS resolutionDueAt,
+              t.escalation_due_at AS escalationDueAt,
+              t.first_response_at AS firstResponseAt,
+              t.resolved_at AS resolvedAt,
+              t.sla_response_status AS slaResponseStatus,
+              t.sla_resolution_status AS slaResolutionStatus,
+              t.sla_escalation_level AS slaEscalationLevel,
+              t.sla_last_escalated_at AS slaLastEscalatedAt,
               t.assigned_team AS assignedTeam,
               t.status,
               t.service_interruption AS serviceInterruption,
@@ -660,7 +799,18 @@ async function updateTicket(
               assigned_team_id AS assignedTeamId,
               assigned_user_id AS assignedUserId,
               assignment_source AS assignmentSource,
-              assigned_at AS assignedAt
+              assigned_at AS assignedAt,
+              sla_policy_code AS slaPolicyCode,
+              sla_started_at AS slaStartedAt,
+              response_due_at AS responseDueAt,
+              resolution_due_at AS resolutionDueAt,
+              escalation_due_at AS escalationDueAt,
+              first_response_at AS firstResponseAt,
+              resolved_at AS resolvedAt,
+              sla_response_status AS slaResponseStatus,
+              sla_resolution_status AS slaResolutionStatus,
+              sla_escalation_level AS slaEscalationLevel,
+              sla_last_escalated_at AS slaLastEscalatedAt
        FROM tickets
        WHERE id = ?`,
     )
@@ -676,6 +826,17 @@ async function updateTicket(
       assignedUserId: string | null;
       assignmentSource: string | null;
       assignedAt: string | null;
+      slaPolicyCode: string | null;
+      slaStartedAt: string | null;
+      responseDueAt: string | null;
+      resolutionDueAt: string | null;
+      escalationDueAt: string | null;
+      firstResponseAt: string | null;
+      resolvedAt: string | null;
+      slaResponseStatus: SlaRuntimeStatus | null;
+      slaResolutionStatus: SlaRuntimeStatus | null;
+      slaEscalationLevel: number;
+      slaLastEscalatedAt: string | null;
     }>();
 
   if (!current) {
@@ -832,6 +993,71 @@ async function updateTicket(
     nextAssignedAt = now;
   }
 
+  const effectivePriority = confirmedPriority || current.priority;
+  let nextSlaPolicyCode = current.slaPolicyCode;
+  let nextSlaStartedAt = current.slaStartedAt;
+  let nextResponseDueAt = current.responseDueAt;
+  let nextResolutionDueAt = current.resolutionDueAt;
+  let nextEscalationDueAt = current.escalationDueAt;
+  let nextFirstResponseAt = current.firstResponseAt;
+  let nextResolvedAt = current.resolvedAt;
+  let nextSlaResponseStatus = current.slaResponseStatus;
+  let nextSlaResolutionStatus = current.slaResolutionStatus;
+  let nextSlaEscalationLevel = current.slaEscalationLevel;
+  let nextSlaLastEscalatedAt = current.slaLastEscalatedAt;
+
+  // MIS 覆核 Priority 後重新套用 SLA policy，但沿用原起算時間。
+  if (confirmedPriority) {
+    const confirmedPolicy = await resolveSlaPolicy(db, confirmedPriority);
+    const runtime = buildSlaRuntime(current.slaStartedAt || now, confirmedPolicy);
+
+    nextSlaPolicyCode = confirmedPolicy?.policyCode || null;
+    nextSlaStartedAt = runtime.slaStartedAt;
+    nextResponseDueAt = runtime.responseDueAt;
+    nextResolutionDueAt = runtime.resolutionDueAt;
+    nextEscalationDueAt = runtime.escalationDueAt;
+    nextSlaResponseStatus = evaluateSlaStatus(
+      nextFirstResponseAt,
+      nextResponseDueAt,
+      runtime.slaResponseStatus,
+    );
+    nextSlaResolutionStatus = evaluateSlaStatus(
+      nextResolvedAt,
+      nextResolutionDueAt,
+      runtime.slaResolutionStatus,
+    );
+
+    // Priority/SLA policy 改變後，下一階段 escalation scanner 應重新評估。
+    nextSlaEscalationLevel = 0;
+    nextSlaLastEscalatedAt = null;
+  }
+
+  const responseStatuses = ["處理中", "已解決", "已結案"];
+  if (!nextFirstResponseAt && responseStatuses.includes(nextStatus)) {
+    nextFirstResponseAt = now;
+    nextSlaResponseStatus = evaluateSlaStatus(
+      nextFirstResponseAt,
+      nextResponseDueAt,
+      nextSlaResponseStatus,
+    );
+  }
+
+  const isResolved = nextStatus === "已解決" || nextStatus === "已結案";
+  const wasResolved = current.status === "已解決" || current.status === "已結案";
+
+  if (isResolved && !nextResolvedAt) {
+    nextResolvedAt = now;
+    nextSlaResolutionStatus = evaluateSlaStatus(
+      nextResolvedAt,
+      nextResolutionDueAt,
+      nextSlaResolutionStatus,
+    );
+  } else if (!isResolved && wasResolved) {
+    // Reopen：保留首次回應量測，但恢復 resolution tracking。
+    nextResolvedAt = null;
+    nextSlaResolutionStatus = nextSlaStartedAt ? "pending" : null;
+  }
+
   const eventType = confirmedPriority ? "priority_confirmed" : assignmentChanged && !statusChanged ? "assignment_changed" : "status_changed";
 
   const assignmentDescription = assignmentChanged
@@ -857,6 +1083,17 @@ async function updateTicket(
                assigned_user_id = ?,
                assignment_source = ?,
                assigned_at = ?,
+               sla_policy_code = ?,
+               sla_started_at = ?,
+               response_due_at = ?,
+               resolution_due_at = ?,
+               escalation_due_at = ?,
+               first_response_at = ?,
+               resolved_at = ?,
+               sla_response_status = ?,
+               sla_resolution_status = ?,
+               sla_escalation_level = ?,
+               sla_last_escalated_at = ?,
                updated_at = ?
            WHERE id = ?`,
         )
@@ -871,6 +1108,17 @@ async function updateTicket(
           nextAssignedUserId,
           nextAssignmentSource,
           nextAssignedAt,
+          nextSlaPolicyCode,
+          nextSlaStartedAt,
+          nextResponseDueAt,
+          nextResolutionDueAt,
+          nextEscalationDueAt,
+          nextFirstResponseAt,
+          nextResolvedAt,
+          nextSlaResponseStatus,
+          nextSlaResolutionStatus,
+          nextSlaEscalationLevel,
+          nextSlaLastEscalatedAt,
           now,
           id,
         ),
@@ -902,6 +1150,10 @@ async function updateTicket(
       assignmentSource: nextAssignmentSource,
       autoAssigned: shouldAutoAssign,
       confirmedPriority: confirmedPriority || null,
+      effectivePriority,
+      slaPolicyCode: nextSlaPolicyCode,
+      slaResponseStatus: nextSlaResponseStatus,
+      slaResolutionStatus: nextSlaResolutionStatus,
     });
   } catch (error) {
     console.error("ticket update failed", error);
@@ -924,6 +1176,17 @@ async function updateTicket(
     assignedUserEmail: assignedUser?.email || null,
     assignmentSource: nextAssignmentSource,
     assignedAt: nextAssignedAt,
+    slaPolicyCode: nextSlaPolicyCode,
+    slaStartedAt: nextSlaStartedAt,
+    responseDueAt: nextResponseDueAt,
+    resolutionDueAt: nextResolutionDueAt,
+    escalationDueAt: nextEscalationDueAt,
+    firstResponseAt: nextFirstResponseAt,
+    resolvedAt: nextResolvedAt,
+    slaResponseStatus: nextSlaResponseStatus,
+    slaResolutionStatus: nextSlaResolutionStatus,
+    slaEscalationLevel: nextSlaEscalationLevel,
+    slaLastEscalatedAt: nextSlaLastEscalatedAt,
     updatedAt: now,
     message: shouldAutoAssign
       ? `工單狀態已更新，並由${identity.displayName}自動接單。`

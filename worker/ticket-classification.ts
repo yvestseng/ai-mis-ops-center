@@ -1,4 +1,4 @@
-export type ServiceClassification = {
+﻿export type ServiceClassification = {
   serviceKey: string;
   category: string;
   assignedTeam: string;
@@ -11,6 +11,21 @@ export type ImpactAnalysis = {
   level: "company_wide" | "site_wide" | "department" | "multiple_users" | "single_user" | "unknown";
   label: string;
   serviceState: "outage" | "degraded" | "request" | "unknown";
+  confidence: number;
+  evidence: string[];
+};
+
+export type WorkTypeClassification = {
+  kind: "incident" | "request" | "unknown";
+  requestType:
+    | "software_installation"
+    | "software_request"
+    | "device_request"
+    | "access_request"
+    | "improvement"
+    | "general_request"
+    | null;
+  label: string;
   confidence: number;
   evidence: string[];
 };
@@ -45,6 +60,95 @@ export function normalizeSemanticText(value: string) {
 
 function evidence(text: string, patterns: Array<[RegExp, string]>) {
   return patterns.filter(([pattern]) => pattern.test(text)).map(([, label]) => label);
+}
+
+export function classifyWorkType(rawText: string): WorkTypeClassification {
+  const text = normalizeSemanticText(rawText);
+  const incidentPatterns: Array<[RegExp, string]> = [
+    [/failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|掛掉|掛了/, "故障／異常"],
+    [/無法寄信|無法收信|無法啟動|無法開機|無法運作/, "服務無法使用"],
+  ];
+  const incidentEvidence = evidence(text, incidentPatterns);
+  if (incidentEvidence.length) {
+    return {
+      kind: "incident",
+      requestType: null,
+      label: "故障／異常",
+      confidence: 0.94,
+      evidence: incidentEvidence,
+    };
+  }
+
+  const requestClassifiers: Array<{
+    requestType: NonNullable<WorkTypeClassification["requestType"]>;
+    label: string;
+    patterns: Array<[RegExp, string]>;
+  }> = [
+    {
+      requestType: "software_installation",
+      label: "軟體安裝申請",
+      patterns: [
+        [/軟體安裝|安裝軟體|安裝\s*(office|autocad|adobe|應用程式|程式)|我要安裝|需要安裝|協助安裝/, "軟體安裝"],
+        [/\boffice\s*\d{4}\b|\bautocad\b|\badobe\b/, "指定軟體"],
+      ],
+    },
+    {
+      requestType: "device_request",
+      label: "設備申請",
+      patterns: [
+        [/設備申請|申請設備|申請筆電|申請電腦|更換電池|更換設備|設備更換|新增設備/, "設備需求"],
+      ],
+    },
+    {
+      requestType: "access_request",
+      label: "帳號／權限申請",
+      patterns: [
+        [/帳號申請|申請帳號|權限申請|申請權限|開通權限|新增權限|存取權限|開通帳號/, "帳號／權限需求"],
+      ],
+    },
+    {
+      requestType: "improvement",
+      label: "改善建議",
+      patterns: [
+        [/改善建議|功能建議|優化建議|建議新增|希望增加|希望新增|需求建議/, "改善／功能建議"],
+      ],
+    },
+    {
+      requestType: "software_request",
+      label: "軟體申請",
+      patterns: [
+        [/軟體申請|申請軟體|軟體需求|授權申請|license\s*request/, "軟體需求"],
+      ],
+    },
+    {
+      requestType: "general_request",
+      label: "一般服務申請",
+      patterns: [
+        [/申請|新增|開通|安裝|設定需求|需求申請/, "一般申請"],
+      ],
+    },
+  ];
+
+  for (const classifier of requestClassifiers) {
+    const hits = evidence(text, classifier.patterns);
+    if (hits.length) {
+      return {
+        kind: "request",
+        requestType: classifier.requestType,
+        label: classifier.label,
+        confidence: Math.min(0.98, 0.86 + hits.length * 0.05),
+        evidence: hits,
+      };
+    }
+  }
+
+  return {
+    kind: "unknown",
+    requestType: null,
+    label: "待判斷",
+    confidence: 0.5,
+    evidence: ["未辨識到明確故障或申請語意"],
+  };
 }
 
 export function classifyService(rawText: string): ServiceClassification {
@@ -96,7 +200,7 @@ export function classifyService(rawText: string): ServiceClassification {
       category: "電腦與周邊設備",
       assignedTeam: "電腦與設備維護組",
       assignedTeamId: "team-endpoint",
-      patterns: [[/印表機|筆電|電腦|螢幕|鍵盤|軟體安裝|安裝.*軟體|軟體.*安裝|printer|laptop/, "端點設備"]],
+      patterns: [[/印表機|筆電|電腦|螢幕|鍵盤|設備申請|申請設備|更換電池|軟體安裝|安裝.*(軟體|office|autocad|adobe|應用程式|程式)|office\s*\d{4}|autocad|adobe|printer|laptop/, "端點／軟體服務"]],
     },
     {
       serviceKey: "identity-system",
@@ -125,9 +229,10 @@ export function classifyService(rawText: string): ServiceClassification {
 
 export function analyzeImpact(rawText: string): ImpactAnalysis {
   const text = normalizeSemanticText(rawText);
+  const workType = classifyWorkType(text);
   const outage = /failure|down|中斷|無法寄信|無法收信|無法使用|無法運作|無法啟動|無法開機|斷線/.test(text);
   const degraded = /異常|很慢|延遲|不穩|偶發|部分|間歇/.test(text);
-  const request = /申請|安裝|建議|新增|開通|權限/.test(text) && !outage;
+  const request = workType.kind === "request";
 
   const scopes: Array<[ImpactAnalysis["level"], string, RegExp, number]> = [
     ["company_wide", "全公司", /全公司|全廠|主要據點|大量使用者受影響/, 0.97],

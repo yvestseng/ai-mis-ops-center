@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
@@ -6,6 +6,7 @@ const tickets = fs.readFileSync(new URL("../worker/tickets.ts", import.meta.url)
 const classifier = fs.readFileSync(new URL("../worker/ticket-classification.ts", import.meta.url), "utf8");
 const workspace = fs.readFileSync(new URL("../app/workspace-home.tsx", import.meta.url), "utf8");
 const migration = fs.readFileSync(new URL("../drizzle/0018_ticket_classification_sla.sql", import.meta.url), "utf8");
+const requestMigration = fs.readFileSync(new URL("../drizzle/0019_request_type_priority_routing.sql", import.meta.url), "utf8");
 
 test("diagnosis uses four-layer server classification", () => {
   assert.match(tickets, /classifyService/);
@@ -39,4 +40,22 @@ test("SLA governance is backed by D1 policies", () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS sla_policies/);
   assert.match(migration, /SLA-P1/);
   assert.match(migration, /SLA-P4/);
+});
+test("request type is separated from incident before P3 fallback", () => {
+  assert.match(classifier, /classifyWorkType/);
+  assert.match(classifier, /software_installation/);
+  assert.match(classifier, /device_request/);
+  assert.match(classifier, /access_request/);
+  assert.match(classifier, /improvement/);
+  assert.match(tickets, /workType\.kind === "request"/);
+  assert.match(tickets, /priority-p4-request/);
+  assert.match(tickets, /semantic\+request-rule/);
+});
+
+test("P4 request policy covers common enterprise service requests", () => {
+  assert.match(requestMigration, /Office/);
+  assert.match(requestMigration, /AutoCAD/);
+  assert.match(requestMigration, /設備申請/);
+  assert.match(requestMigration, /權限申請/);
+  assert.match(requestMigration, /改善建議/);
 });
