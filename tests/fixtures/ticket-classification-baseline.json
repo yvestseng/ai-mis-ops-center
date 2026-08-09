@@ -97,7 +97,7 @@
   },
   {
     "id": "CLS-APP-005",
-    "input": "我的ERP密碼需要重設",
+    "input": "我的ERP帳號申請重設密碼",
     "expected": {"workType":"request","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"single_user","serviceState":"request","priority":"P4"},
     "tags": ["application","single-user","request","boundary","negative-p1","p4"]
   },

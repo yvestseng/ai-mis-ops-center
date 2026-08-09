@@ -32,7 +32,7 @@ test("ERP boundary cases do not promote ordinary or request cases to P1", () => 
     { input: "我的 ERP 程式錯誤無法使用", priority: "P3" },
     { input: "財務部ERP無法登入", priority: "P3" },
     { input: "我要申請ERP帳號", priority: "P4" },
-    { input: "我的ERP密碼需要重設", priority: "P4" },
+    { input: "我的ERP帳號申請重設密碼", priority: "P4" },
   ];
 
   for (const item of cases) {

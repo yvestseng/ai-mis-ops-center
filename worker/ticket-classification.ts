@@ -1,4 +1,4 @@
-﻿export type ServiceClassification = {
+export type ServiceClassification = {
   serviceKey: string;
   category: string;
   assignedTeam: string;
@@ -44,6 +44,10 @@ const semanticAliases: Array<[RegExp, string]> = [
   [/大量同仁|大批使用者|大範圍使用者/g, "大量使用者受影響"],
   [/不能寄信|寄不出去|寄信失敗|無法寄出|信寄不出去/g, "無法寄信"],
   [/不能收信|收不到信|收信失敗|無法收到/g, "無法收信"],
+  [
+    /無法登入|不能登入|登入失敗|登錄失敗|login\s*failed|login\s*failure|cannot\s*log\s*in|can't\s*log\s*in/g,
+    " login failure down ",
+  ],
   [/無法上網|不能上網|無法連網|不能連網|上不了網|斷網/g, "網路 failure down"],
   [/連不上|無法連線|連線失敗|connection failed|connection failure/g, "連線 failure"],
   [/失敗|故障|掛掉|掛了|停止服務|服務中斷|不可用|無法使用/g, " failure down "],
