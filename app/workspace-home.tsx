@@ -1833,6 +1833,18 @@ function GovernanceConsole({
               {reviewsLoading ? "載入中…" : `${reviews.length} 件待處理`}
             </span>
           </div>
+          <div className="classification-review-entry">
+            <div>
+              <b>Classification Review Workbench</b>
+              <small>將 AI suggested classification 與 MIS 最終判定建立為 KPI Ground Truth。</small>
+            </div>
+            <button
+              className="secondary"
+              onClick={() => window.location.assign("/admin/classification-reviews")}
+            >
+              開啟分類覆核工作台
+            </button>
+          </div>
           {reviewsError && <p className="form-error" role="alert">{reviewsError}</p>}
           {!reviewsLoading && !reviewsError && reviews.length === 0 && (
             <p className="empty-state">目前沒有待人工覆核的工單。</p>
