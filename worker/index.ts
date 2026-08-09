@@ -11,6 +11,7 @@ import {
   handleTicketPriorityReviewRequest,
   handleTicketRequest,
 } from "./tickets";
+import { handleClassificationReviewRequest } from "./classification-reviews";
 import { handleAdminRequest, handleSessionRequest } from "./admin";
 import { handleDashboardRequest } from "./dashboard";
 import { handleSupportTeamRequest } from "./support-teams";
@@ -74,6 +75,27 @@ const worker = {
 
       if (url.pathname === "/api/tickets/priority-reviews") {
         return respond(handleTicketPriorityReviewRequest(request, env.DB));
+      }
+
+      if (url.pathname === "/api/classification-reviews/kpi") {
+        return respond(handleClassificationReviewRequest(request, env.DB, undefined, "kpi"));
+      }
+
+      if (url.pathname === "/api/classification-reviews") {
+        return respond(handleClassificationReviewRequest(request, env.DB));
+      }
+
+      const classificationReviewMatch = url.pathname.match(
+        /^\/api\/classification-reviews\/([^/]+)$/,
+      );
+      if (classificationReviewMatch) {
+        return respond(
+          handleClassificationReviewRequest(
+            request,
+            env.DB,
+            classificationReviewMatch[1],
+          ),
+        );
       }
 
       const governanceMatch = url.pathname.match(
