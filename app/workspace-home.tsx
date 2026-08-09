@@ -1723,6 +1723,7 @@ function GovernanceConsole({
     ? [
         "SLA 與升級",
         "AI 覆核",
+        "分類品質",
         "知識庫",
         "重大事件",
         "系統使用問卷",
@@ -1769,6 +1770,10 @@ function GovernanceConsole({
             key={x}
             className={tab === x ? "active" : ""}
             onClick={() => {
+              if (x === "分類品質") {
+                window.location.assign("/admin/classification-quality");
+                return;
+              }
               setTab(x);
               if (x.includes("問卷") || x.includes("調查"))
                 void loadSurveyStats();
