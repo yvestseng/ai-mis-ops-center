@@ -4,17 +4,43 @@ dist/
 .vinext/
 .wrangler/
 .sites-runtime/
+
+# Environment configuration
+
 .env*
 !.env.example
+
+# Visual Studio
+
 .vs/
+
+# Test / coverage output
+
 coverage/
+
+# Logs and temporary backup files
+
 *.log
 *.before-*
+
+# Recovered Drizzle artifacts
+
 drizzle-recovered/
+
+# Local D1 database exports / backups
 
 site-creator-d1-*.sql
 
 # Local environment secrets
+
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
+
+# Release Traceability v2
+
+# Generated only after validation/deployment.
+
+# Must not create a new Git commit after the deployed commit SHA is recorded.
+
+release-output/
