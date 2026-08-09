@@ -1,5 +1,6 @@
 import { audit, json, requirePermission, type Identity } from "./auth";
 import { analyzeImpact, classifyService, classifyWorkType, priorityCode } from "./ticket-classification";
+import { getBaselineOperationsDatasource } from "./classification-baseline-operations";
 
 const priorityCodes = new Set(["P1", "P2", "P3", "P4"]);
 const workTypes = new Set(["incident", "request", "unknown"]);
@@ -324,6 +325,8 @@ async function updateReview(
 }
 
 async function getKpiDatasource(db: D1Database) {
+  const operationsPromise = getBaselineOperationsDatasource(db);
+
   const [totals, reviewed, priorities, services] = await db.batch([
     db.prepare(
       `SELECT COUNT(*) AS total,
@@ -374,6 +377,7 @@ async function getKpiDatasource(db: D1Database) {
   const actualP1 = Number((reviewed.results[0] as { actualP1?: number } | undefined)?.actualP1 ?? 0);
   const truePositiveP1 = Number((reviewed.results[0] as { truePositiveP1?: number } | undefined)?.truePositiveP1 ?? 0);
   const ratio = (numerator: number, denominator: number) => denominator === 0 ? null : Math.round((numerator / denominator) * 10_000) / 10_000;
+  const operations = await operationsPromise;
 
   return json({
     baseline: {
@@ -389,6 +393,7 @@ async function getKpiDatasource(db: D1Database) {
     },
     priorityBreakdown: priorities.results ?? [],
     serviceBreakdown: services.results ?? [],
+    operations,
   });
 }
 
