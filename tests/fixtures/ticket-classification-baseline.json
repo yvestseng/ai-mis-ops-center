@@ -75,7 +75,31 @@
     "id": "CLS-APP-001",
     "input": "我的 ERP 程式錯誤無法使用",
     "expected": {"workType":"incident","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"single_user","serviceState":"outage","priority":"P3"},
-    "tags": ["application","single-user","incident"]
+    "tags": ["application","single-user","incident","negative-p1"]
+  },
+  {
+    "id": "CLS-APP-002",
+    "input": "全公司ERP都無法登入",
+    "expected": {"workType":"incident","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
+    "tags": ["application","company-wide","outage","p1","positive","safety"]
+  },
+  {
+    "id": "CLS-APP-003",
+    "input": "財務部ERP無法登入",
+    "expected": {"workType":"incident","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"department","serviceState":"outage","priority":"P3"},
+    "tags": ["application","department","boundary","negative-p1"]
+  },
+  {
+    "id": "CLS-APP-004",
+    "input": "我要申請ERP帳號",
+    "expected": {"workType":"request","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"unknown","serviceState":"request","priority":"P4"},
+    "tags": ["application","request","boundary","negative-p1","p4"]
+  },
+  {
+    "id": "CLS-APP-005",
+    "input": "我的ERP密碼需要重設",
+    "expected": {"workType":"request","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"single_user","serviceState":"request","priority":"P4"},
+    "tags": ["application","single-user","request","boundary","negative-p1","p4"]
   },
   {
     "id": "CLS-REQ-001",
