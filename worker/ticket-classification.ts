@@ -32,11 +32,14 @@ export type WorkTypeClassification = {
 
 const semanticAliases: Array<[RegExp, string]> = [
   [/整間公司|整個公司|全體同仁|全公司所有人|公司所有人|所有員工|全員/g, "全公司"],
+  [/(?:公司|全公司)(?:的)?(?:網路|網絡|內網|外網|internet)?(?:全部|全面|全數)(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)|公司(?:全部|全面|全數)(?:網路|網絡|內網|外網|internet)?(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
+  [/全公司(?:的)?(?:網路|網絡|內網|外網|internet)?(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
   [/整個廠區|整廠|全廠區/g, "全廠"],
   [/整個據點|整個辦公室|整棟辦公室/g, "主要據點"],
   [/大量同仁|大批使用者|大範圍使用者/g, "大量使用者受影響"],
   [/不能寄信|寄不出去|寄信失敗|無法寄出|信寄不出去/g, "無法寄信"],
   [/不能收信|收不到信|收信失敗|無法收到/g, "無法收信"],
+  [/無法上網|不能上網|無法連網|不能連網|上不了網|斷網/g, "網路 failure down"],
   [/連不上|無法連線|連線失敗|connection failed|connection failure/g, "連線 failure"],
   [/失敗|故障|掛掉|掛了|停止服務|服務中斷|不可用|無法使用/g, " failure down "],
   [/郵件系統|mail service|mail system/g, "郵件服務"],
@@ -65,8 +68,8 @@ function evidence(text: string, patterns: Array<[RegExp, string]>) {
 export function classifyWorkType(rawText: string): WorkTypeClassification {
   const text = normalizeSemanticText(rawText);
   const incidentPatterns: Array<[RegExp, string]> = [
-    [/failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|掛掉|掛了/, "故障／異常"],
-    [/無法寄信|無法收信|無法啟動|無法開機|無法運作/, "服務無法使用"],
+    [/failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|斷網|掛掉|掛了/, "故障／異常"],
+    [/無法寄信|無法收信|無法上網|不能上網|無法連網|不能連網|無法啟動|無法開機|無法運作/, "服務無法使用"],
   ];
   const incidentEvidence = evidence(text, incidentPatterns);
   if (incidentEvidence.length) {
@@ -179,7 +182,7 @@ export function classifyService(rawText: string): ServiceClassification {
       category: "網路連線",
       assignedTeam: "網路維運組",
       assignedTeamId: "team-network",
-      patterns: [[/core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|wifi|wi-fi|網路|斷線/, "網路服務"]],
+      patterns: [[/core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|網路|網絡|斷線|斷網|無法上網|不能上網|無法連網|不能連網/, "網路服務"]],
     },
     {
       serviceKey: "database",
@@ -230,7 +233,7 @@ export function classifyService(rawText: string): ServiceClassification {
 export function analyzeImpact(rawText: string): ImpactAnalysis {
   const text = normalizeSemanticText(rawText);
   const workType = classifyWorkType(text);
-  const outage = /failure|down|中斷|無法寄信|無法收信|無法使用|無法運作|無法啟動|無法開機|斷線/.test(text);
+  const outage = /failure|down|中斷|服務中斷|無法寄信|無法收信|無法上網|不能上網|無法連網|不能連網|無法使用|無法運作|無法啟動|無法開機|斷線|斷網/.test(text);
   const degraded = /異常|很慢|延遲|不穩|偶發|部分|間歇/.test(text);
   const request = workType.kind === "request";
 
