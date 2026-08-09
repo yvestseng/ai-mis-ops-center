@@ -32,6 +32,8 @@ export type WorkTypeClassification = {
 
 const semanticAliases: Array<[RegExp, string]> = [
   [/整間公司|整個公司|全體同仁|全公司所有人|公司所有人|所有員工|全員/g, "全公司"],
+  [/(?:公司|全公司)(?:的)?(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:全部|全面|全數)(?:中斷|斷線|斷網|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)|(?:公司|全公司)(?:的)?(?:全部|全面|全數)(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:中斷|斷線|斷網|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
+  [/全公司(?:都|全部|全數)?(?:無法|不能)(?:連線|連上|連接)?(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)/g, "全公司 網路 服務中斷"],
   [/(?:公司|全公司)(?:的)?(?:網路|網絡|內網|外網|internet)?(?:全部|全面|全數)(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)|公司(?:全部|全面|全數)(?:網路|網絡|內網|外網|internet)?(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
   [/全公司(?:的)?(?:網路|網絡|內網|外網|internet)?(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)/g, "全公司 網路 服務中斷"],
   [/整個廠區|整廠|全廠區/g, "全廠"],
@@ -182,7 +184,7 @@ export function classifyService(rawText: string): ServiceClassification {
       category: "網路連線",
       assignedTeam: "網路維運組",
       assignedTeamId: "team-network",
-      patterns: [[/core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|網路|網絡|斷線|斷網|無法上網|不能上網|無法連網|不能連網/, "網路服務"]],
+      patterns: [[/core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|無線網路|無線網|網路|網絡|斷線|斷網|無法上網|不能上網|無法連網|不能連網/, "網路服務"]],
     },
     {
       serviceKey: "database",
