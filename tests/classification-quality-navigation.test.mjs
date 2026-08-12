@@ -7,14 +7,9 @@ const workspace = fs.readFileSync(
   "utf8",
 );
 
-test("service governance exposes classification quality dashboard navigation", () => {
-  assert.match(
-    workspace,
-    /"AI \u8986\u6838",\s*"\u5206\u985e\u54c1\u8cea",\s*"\u77e5\u8b58\u5eab",/,
-  );
-
-  assert.match(
-    workspace,
-    /if \(x === "\u5206\u985e\u54c1\u8cea"\) \{\s*window\.location\.assign\("\/admin\/classification-quality"\);\s*return;\s*\}/,
-  );
+test("service governance exposes classification review and quality dashboard navigation", () => {
+  assert.ok(workspace.includes("MIS 分類覆核"));
+  assert.ok(workspace.includes("分類品質 Dashboard"));
+  assert.ok(workspace.includes("/admin/classification-reviews"));
+  assert.ok(workspace.includes("/admin/classification-quality"));
 });

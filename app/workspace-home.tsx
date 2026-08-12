@@ -1722,8 +1722,8 @@ function GovernanceConsole({
   const tabs = canManageGovernance
     ? [
         "SLA 與升級",
-        "AI 覆核",
-        "分類品質",
+        "MIS 分類覆核",
+        "分類品質 Dashboard",
         "知識庫",
         "重大事件",
         "系統使用問卷",
@@ -1750,7 +1750,7 @@ function GovernanceConsole({
         <div>
           <span className="eyebrow">IT SERVICE GOVERNANCE</span>
           <h2>服務治理中心</h2>
-          <p>統一管理 SLA、AI 覆核、知識庫、重大事件與服務品質。</p>
+          <p>統一管理 SLA、MIS 分類覆核、分類品質、知識庫、重大事件與服務品質。</p>
         </div>
         <div className="toolbar">
           <button className="secondary" onClick={onEmailTicket}>
@@ -1770,7 +1770,11 @@ function GovernanceConsole({
             key={x}
             className={tab === x ? "active" : ""}
             onClick={() => {
-              if (x === "分類品質") {
+              if (x === "MIS 分類覆核") {
+                window.location.assign("/admin/classification-reviews");
+                return;
+              }
+              if (x === "分類品質 Dashboard") {
                 window.location.assign("/admin/classification-quality");
                 return;
               }
@@ -1822,7 +1826,7 @@ function GovernanceConsole({
           ))}
         </div>
       )}
-      {tab === "AI 覆核" && (
+      {tab === "MIS 分類覆核" && (
         <div className="card governance-list">
           <div className="card-head">
             <div>
