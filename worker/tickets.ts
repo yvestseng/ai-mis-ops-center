@@ -25,6 +25,7 @@ type TicketPayload = {
   priority?: unknown;
   serviceInterruption?: unknown;
   impactScope?: unknown;
+  impactLevel?: unknown;
   priorityReviewRequired?: unknown;
   priorityConfirmed?: unknown;
   source?: unknown;
@@ -382,6 +383,7 @@ async function createTicket(
   const submittedPriority = textValue(payload.priority, 10);
   const serviceInterruption = textValue(payload.serviceInterruption, 30) || null;
   const impactScope = textValue(payload.impactScope, 300) || null;
+  const submittedImpactLevel = textValue(payload.impactLevel, 40) || null;
   const source = textValue(payload.source, 30) || "AI 報修";
   const location = textValue(payload.location, 120) || null;
   const assetTag = textValue(payload.assetTag, 80) || null;
@@ -393,7 +395,23 @@ async function createTicket(
   const assignedTeam = matchedRule ? classification.assignedTeam : (submittedAssignedTeam || classification.assignedTeam);
   const priorityReviewRequired = classification.priorityReviewRequired;
   const requireImpactDetails = classification.requireImpactDetails;
+  const canonicalImpactLevel = classification.impact.level;
   const slaPolicy = await resolveSlaPolicy(db, priority);
+
+  // The server classification is authoritative. A diagnosis-driven form sends
+  // the canonical impact level it displayed; reject stale/mismatched submissions
+  // rather than persisting a different impact level from the confirmation UI.
+  if (submittedImpactLevel && submittedImpactLevel !== canonicalImpactLevel) {
+    return json(
+      {
+        error: "STALE_IMPACT_DIAGNOSIS",
+        message: "AI 診斷的影響範圍已變更，請重新執行 AI 診斷後再建立工單。",
+        expectedImpactLevel: canonicalImpactLevel,
+      },
+      409,
+    );
+  }
+
   if (
     !requesterToken ||
     !requesterName ||
@@ -457,7 +475,7 @@ async function createTicket(
           assetTag,
           assignedTeam,
           classification.service.serviceKey,
-          classification.impact.level,
+          canonicalImpactLevel,
           classification.classificationSource,
           classification.confidence,
           matchedRule?.ruleName || null,
@@ -487,7 +505,7 @@ async function createTicket(
       priorityReviewRequired,
       classificationSource: classification.classificationSource,
       classificationService: classification.service.serviceKey,
-      impactLevel: classification.impact.level,
+      impactLevel: canonicalImpactLevel,
       priorityRuleName: matchedRule?.ruleName || null,
       slaPolicyCode: slaPolicy?.policyCode || null,
       slaStartedAt: slaRuntime.slaStartedAt,
@@ -519,7 +537,7 @@ async function createTicket(
         prioritySuggestion: matchedRule ? priority : null,
         priorityReviewRequired,
         classificationService: classification.service.serviceKey,
-        impactLevel: classification.impact.level,
+        impactLevel: canonicalImpactLevel,
         classificationSource: classification.classificationSource,
         classificationConfidence: classification.confidence,
         priorityRuleName: matchedRule?.ruleName || null,

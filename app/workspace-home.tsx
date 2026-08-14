@@ -3085,6 +3085,7 @@ export default function Home() {
   const [assetTag, setAssetTag] = useState("");
   const [serviceInterruption, setServiceInterruption] = useState("");
   const [impactScope, setImpactScope] = useState("");
+  const [impactLevel, setImpactLevel] = useState("");
   const [category, setCategory] = useState("自動判斷");
   const [priority, setPriority] = useState("自動判斷");
   const [submittingTicket, setSubmittingTicket] = useState(false);
@@ -3308,17 +3309,21 @@ export default function Home() {
       const result = (await response.json()) as TicketDiagnosis & { message?: string };
       if (!response.ok) throw new Error(result.message || "AI 診斷失敗");
       setDiagnosisResult(result);
+
+      // Keep the confirmation form synchronized with the latest authoritative
+      // server diagnosis. Never reuse impact details from a previous diagnosis.
+      setImpactLevel(result.impact.level);
+      setImpactScope(result.impact.level === "unknown" ? "" : result.impact.label);
+
       if (result.review?.requireImpactDetails) {
-        if (!serviceInterruption.trim()) {
-          setServiceInterruption(
-            result.impact.serviceState === "outage" ? "服務中斷" :
-            result.impact.serviceState === "degraded" ? "服務異常／降級" : "待確認",
-          );
-        }
-        if (!impactScope.trim() && result.impact.level !== "unknown") {
-          setImpactScope(result.impact.label);
-        }
+        setServiceInterruption(
+          result.impact.serviceState === "outage" ? "服務中斷" :
+          result.impact.serviceState === "degraded" ? "服務異常／降級" : "待確認",
+        );
+      } else {
+        setServiceInterruption("");
       }
+
       setDiagnosis(true);
     } catch (error) {
       flash(error instanceof Error ? error.message : "AI 診斷失敗，請稍後再試");
@@ -3431,12 +3436,14 @@ export default function Home() {
         aiSuggestedTeamId: selectedTeamId,
         serviceInterruption,
         impactScope,
+        impactLevel,
       });
       setDiagnosis(false);
       setIssue("");
       setDiagnosisResult(null);
       setServiceInterruption("");
       setImpactScope("");
+      setImpactLevel("");
       setFormMode(false);
       setActive("我的工單");
       flash(result.message || "工單已建立");
@@ -3966,6 +3973,9 @@ export default function Home() {
                     setFormMode(!formMode);
                     setDiagnosis(false);
                     setDiagnosisResult(null);
+                    setServiceInterruption("");
+                    setImpactScope("");
+                    setImpactLevel("");
                   }}
                 >
                   {formMode ? "返回 AI 快速報修" : "改用完整表單報修"} ›
@@ -4003,8 +4013,15 @@ export default function Home() {
                       <label>服務中斷狀況
                         <input value={serviceInterruption} onChange={(e) => setServiceInterruption(e.target.value)} placeholder="例如：核心交換器連線中斷" />
                       </label>
-                      <label>影響範圍 <strong>必填</strong>
-                        <input value={impactScope} onChange={(e) => setImpactScope(e.target.value)} placeholder="例如：17 樓及資料中心網路服務" />
+                      <label>
+                        影響範圍 <strong>必填</strong>
+                        {impactLevel && <small className="impact-level-code">AI：{diagnosisResult?.impact.label}（{impactLevel}）</small>}
+                        <input
+                          value={impactScope}
+                          onChange={(e) => setImpactScope(e.target.value)}
+                          data-impact-level={impactLevel}
+                          placeholder="例如：17 樓及資料中心網路服務"
+                        />
                       </label>
                     </div>
                   )}
