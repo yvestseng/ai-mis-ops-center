@@ -42,6 +42,10 @@ const semanticAliases: Array<[RegExp, string]> = [
     "全公司",
   ],
   [
+    /所有人員|全部人員|全體人員|所有同仁|全部同仁|所有使用者|全部使用者|全體使用者|大家都/g,
+    "所有使用者受影響",
+  ],
+  [
     /公司(?:的)?(?:(?:所有|全部|全數)(?:電腦|pc|computer)|(?:電腦|pc|computer)(?:都|全部|全數))(?:無法|不能)(?:登入|登錄|log\s*in|logon)(?:公司)?(?:網域|domain|ad|active directory)/g,
     "全公司 網域登入 failure down",
   ],
@@ -79,7 +83,7 @@ const semanticAliases: Array<[RegExp, string]> = [
     " 登入 login failure down ",
   ],
   [/無法上網|不能上網|無法連網|不能連網|上不了網|斷網/g, "網路 failure down"],
-  [/連不上|無法連線|連線失敗|connection failed|connection failure/g, "連線 failure"],
+  [/連不上|無法連(?:線|上|接)?|連線失敗|connection failed|connection failure/g, "連線 failure"],
   [/失敗|故障|掛掉|掛了|停止服務|服務中斷|不可用|無法使用/g, " failure down "],
   [/郵件系統|mail service|mail system/g, "郵件服務"],
   [/exchange online/g, "exchange"],
@@ -393,6 +397,10 @@ export function analyzeImpact(
   const request =
     workType.kind === "request";
 
+  const departmentPattern = /部門|(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}部/u;
+  const departmentScope = departmentPattern.test(text);
+  const workforceWideScope = /所有使用者受影響/.test(text);
+
   const scopes: Array<
     [
       ImpactAnalysis["level"],
@@ -401,23 +409,25 @@ export function analyzeImpact(
       number,
     ]
   > = [
+    // Department wording takes precedence over generic workforce wording so
+    // phrases such as "財務部所有人員都無法登入" remain department impact.
+    [
+      "department",
+      "部門",
+      departmentPattern,
+      0.9,
+    ],
     [
       "company_wide",
       "全公司",
-      /全公司|全廠|主要據點|大量使用者受影響/,
-      0.97,
+      /全公司|全廠|主要據點|大量使用者受影響|所有使用者受影響/,
+      workforceWideScope && !departmentScope ? 0.96 : 0.97,
     ],
     [
       "site_wide",
       "據點／辦公區",
       /整層|整樓|整個辦公室|廠區|據點/,
       0.9,
-    ],
-    [
-      "department",
-      "部門",
-      /部門|整個.*部|全.*部/,
-      0.84,
     ],
     [
       "multiple_users",

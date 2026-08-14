@@ -129,9 +129,16 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
       // P4 is reserved for request-type tickets. Wording such as
       // "安裝後失敗" must remain an incident and must not be downgraded.
       if (rule.id === "priority-p4-request") return false;
-      // A broad impact phrase such as "全公司" is not enough for P1 by itself;
-      // it must also describe an actual outage/failure, not a request or notice.
-      if (rule.id === "priority-p1-major-outage" && impact.serviceState !== "outage") return false;
+      // P1 requires both an actual outage and a broad impact scope. This prevents
+      // terms such as "所有人員" inside a single department from being promoted
+      // to company-wide P1 solely because they appear in the D1 vocabulary.
+      if (rule.id === "priority-p1-major-outage") {
+        const broadImpact =
+          impact.level === "company_wide" ||
+          impact.level === "site_wide" ||
+          (impact.level === "multiple_users" && impact.confidence >= 0.9);
+        if (impact.serviceState !== "outage" || !broadImpact) return false;
+      }
       return true;
     });
     if (explicit) return explicit;

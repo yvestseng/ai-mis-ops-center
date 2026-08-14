@@ -15,11 +15,16 @@ const migration = fs.readFileSync(
   "utf8",
 );
 
+const impactAliasMigration = fs.readFileSync(
+  new URL("../drizzle/0025_company_wide_impact_aliases.sql", import.meta.url),
+  "utf8",
+);
+
 function assertCompanyWifiOutage(input) {
   const normalized = normalizeSemanticText(input);
-  assert.match(normalized, /全公司/, input);
-  assert.match(normalized, /網路/, input);
-  assert.match(normalized, /failure|down|中斷/, input);
+  assert.match(normalized, /全公司|所有使用者受影響/, input);
+  assert.match(normalized, /網路|wifi|wi-fi|無線網/, input);
+  assert.match(normalized, /failure|down|中斷|斷線|不能連線|無法連線|連不上|不能上網|無法上網|無法使用/, input);
 
   const workType = classifyWorkType(input);
   assert.equal(workType.kind, "incident", input);
@@ -57,6 +62,31 @@ test("common Wi-Fi and wireless company-wide outage variants keep P1 impact sema
   }
 });
 
+test("natural-language all-personnel Wi-Fi outage is promoted to company-wide P1 semantics", () => {
+  assertCompanyWifiOutage("公司 Wi-Fi，從早上開始一直斷線所有人員都無法連線");
+});
+
+test("common workforce-wide wording is normalized as company-wide impact", () => {
+  for (const input of [
+    "公司 WiFi 一直斷線，全部人員都不能連線",
+    "公司無線網路中斷，所有同仁都無法上網",
+    "公司 Wi-Fi 掛了，全部同仁都無法使用",
+    "公司無線網路斷線，所有使用者都連不上",
+    "公司 WiFi 中斷，全體使用者都不能上網",
+  ]) {
+    assertCompanyWifiOutage(input);
+  }
+});
+
+test("department-wide all-personnel outage is not promoted to company-wide P1 impact", () => {
+  const input = "財務部所有人員都無法連公司 WiFi";
+  const impact = analyzeImpact(input);
+
+  assert.equal(impact.level, "department");
+  assert.equal(impact.serviceState, "outage");
+  assert.equal(classifyService(input).serviceKey, "core-network");
+});
+
 test("single AP failure is not promoted to company-wide impact", () => {
   const input = "公司的某一台 WiFi AP 故障";
   const impact = analyzeImpact(input);
@@ -80,4 +110,8 @@ test("D1 Wi-Fi vocabulary keeps the existing P1 outage safety gate and review re
   assert.match(migration, /全公司無法連WiFi/);
   assert.match(migration, /priority_review_required = 1/);
   assert.match(migration, /require_impact_details = 1/);
+  assert.match(impactAliasMigration, /所有人員/);
+  assert.match(impactAliasMigration, /所有使用者受影響/);
+  assert.match(impactAliasMigration, /priority_review_required = 1/);
 });
+
