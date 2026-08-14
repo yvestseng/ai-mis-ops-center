@@ -24,6 +24,18 @@
     "tags": ["network","single-user","boundary","negative-p1"]
   },
   {
+    "id": "CLS-NET-005",
+    "input": "財務部所有人員都無法連公司 WiFi",
+    "expected": {"workType":"incident","serviceKey":"core-network","assignedTeamId":"team-network","impactLevel":"department","serviceState":"outage","priority":"P2"},
+    "tags": ["network","department","outage","p2","boundary"]
+  },
+  {
+    "id": "CLS-NET-006",
+    "input": "多人無法連公司 WiFi",
+    "expected": {"workType":"incident","serviceKey":"core-network","assignedTeamId":"team-network","impactLevel":"multiple_users","serviceState":"outage","priority":"P2"},
+    "tags": ["network","multiple-users","outage","p2","boundary"]
+  },
+  {
     "id": "CLS-ID-001",
     "input": "公司電腦都無法登入網域",
     "expected": {"workType":"incident","serviceKey":"identity-system","assignedTeamId":"team-system","impactLevel":"company_wide","serviceState":"outage","priority":"P1"},
@@ -86,8 +98,8 @@
   {
     "id": "CLS-APP-003",
     "input": "財務部ERP無法登入",
-    "expected": {"workType":"incident","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"department","serviceState":"outage","priority":"P3"},
-    "tags": ["application","department","boundary","negative-p1"]
+    "expected": {"workType":"incident","serviceKey":"application","assignedTeamId":"team-application","impactLevel":"department","serviceState":"outage","priority":"P2"},
+    "tags": ["application","department","boundary","negative-p1","p2"]
   },
   {
     "id": "CLS-APP-004",

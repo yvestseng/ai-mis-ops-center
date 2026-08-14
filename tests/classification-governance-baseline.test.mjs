@@ -21,7 +21,14 @@ const baseline = JSON.parse(
 
 function baselinePriority(workType, impact) {
   if (workType.kind === "request") return "P4";
-  if (impact.level === "company_wide" && impact.serviceState === "outage") return "P1";
+  if (
+    (impact.level === "company_wide" || impact.level === "site_wide") &&
+    impact.serviceState === "outage"
+  ) return "P1";
+  if (
+    (impact.level === "department" || impact.level === "multiple_users") &&
+    impact.serviceState === "outage"
+  ) return "P2";
   return "P3";
 }
 
@@ -75,6 +82,7 @@ test("golden classification dataset has stable unique IDs and required dimension
 
 test("golden dataset contains positive P1 cases and boundary/negative P1 cases", () => {
   assert.ok(baseline.some((item) => item.expected.priority === "P1"));
+  assert.ok(baseline.some((item) => item.expected.priority === "P2"));
   assert.ok(baseline.some((item) => item.tags.includes("negative-p1")));
   assert.ok(baseline.some((item) => item.tags.includes("single-user")));
   assert.ok(baseline.some((item) => item.tags.includes("single-device")));

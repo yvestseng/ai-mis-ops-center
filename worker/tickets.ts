@@ -125,10 +125,20 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
     }
 
     const explicit = rules.find((rule) => {
-      if (!ruleMatches(content, rule)) return false;
+      const departmentOrMultiUserOutage =
+        rule.id === "priority-p2-department-outage" &&
+        impact.serviceState === "outage" &&
+        (impact.level === "department" || impact.level === "multiple_users");
+
+      // Generic P2 scope routing is driven by the semantic impact classifier so
+      // arbitrary department names such as "財務部" do not need to be enumerated
+      // in D1. All other rules still require their administrator-maintained terms.
+      if (!ruleMatches(content, rule) && !departmentOrMultiUserOutage) return false;
+
       // P4 is reserved for request-type tickets. Wording such as
       // "安裝後失敗" must remain an incident and must not be downgraded.
       if (rule.id === "priority-p4-request") return false;
+
       // P1 requires both an actual outage and a broad impact scope. This prevents
       // terms such as "所有人員" inside a single department from being promoted
       // to company-wide P1 solely because they appear in the D1 vocabulary.
@@ -139,6 +149,14 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
           (impact.level === "multiple_users" && impact.confidence >= 0.9);
         if (impact.serviceState !== "outage" || !broadImpact) return false;
       }
+
+      // P2 is the middle boundary for a department or a clearly multi-user outage.
+      // Company/site-wide outages remain P1, while single-device/single-user cases
+      // continue through to the P3 fallback.
+      if (rule.id === "priority-p2-department-outage") {
+        if (!departmentOrMultiUserOutage) return false;
+      }
+
       return true;
     });
     if (explicit) return explicit;
@@ -243,7 +261,9 @@ function buildClassification(title: string, description: string, matchedRule: Pr
   const service = classifyService(text);
   const impact = analyzeImpact(text);
   const workType = classifyWorkType(text);
-  const genericImpactRule = matchedRule?.id === "priority-p1-major-outage";
+  const genericImpactRule =
+    matchedRule?.id === "priority-p1-major-outage" ||
+    matchedRule?.id === "priority-p2-department-outage";
   const fallbackRule = matchedRule?.id === "priority-p3-default-service";
   const genericRequestRule = matchedRule?.id === "priority-p4-request";
   const ruleOwnsRouting = Boolean(
