@@ -54,7 +54,7 @@ const semanticAliases: Array<[RegExp, string]> = [
     "全公司 網域登入 failure down",
   ],
   [
-    /(?:(?:公司)(?:的)?\s*(?:所有|全部|全數)|(?:所有|全部|全數)\s*公司(?:的)?|全公司(?:的)?\s*(?:所有|全部|全數)?)\s*(?:電腦|pc|computer)\s*(?:目前|現在)?\s*(?:都|全部|全數)?\s*(?:無法|不能)\s*(?:上網|連網|連線|連接網路|連外)/g,
+    /(?:(?:公司)(?:的)?\s*(?:所有|全部|全數)|(?:所有|全部|全數)\s*公司(?:的)?|全公司(?:的)?\s*(?:所有|全部|全數)?)\s*(?:電腦|pc|computer)\s*(?:目前|現在)?\s*(?:都|全部|全數)?\s*(?:無法|不能)\s*(?:(?:連|連線|連上|連接)?\s*(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)|上網|連網|連線|連接網路|連外)/g,
     "全公司 網路 服務中斷",
   ],
   [
@@ -87,6 +87,10 @@ const semanticAliases: Array<[RegExp, string]> = [
     " 登入 login failure down ",
   ],
   [/無法上網|不能上網|無法連網|不能連網|上不了網|斷網/g, "網路 failure down"],
+  [
+    /(?:無法|不能)\s*(?:連|連線|連上|連接)?\s*(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)/g,
+    "網路 failure down",
+  ],
   [/連不上|無法連(?:線|上|接)?|連線失敗|connection failed|connection failure/g, "連線 failure"],
   [/失敗|故障|掛掉|掛了|停止服務|服務中斷|不可用|無法使用/g, " failure down "],
   [/郵件系統|mail service|mail system/g, "郵件服務"],
