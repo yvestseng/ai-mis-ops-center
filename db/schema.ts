@@ -271,6 +271,8 @@ export const tickets = sqliteTable(
     priorityConfirmedBy: text("priority_confirmed_by"),
     priorityConfirmedAt: text("priority_confirmed_at"),
     classificationService: text("classification_service"),
+    classificationWorkType: text("classification_work_type"),
+    classificationServiceState: text("classification_service_state"),
     impactLevel: text("impact_level"),
     classificationSource: text("classification_source"),
     classificationConfidence: real("classification_confidence"),

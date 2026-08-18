@@ -390,17 +390,56 @@ async function createTicket(
   const submittedAssignedTeam = textValue(payload.assignedTeam, 80);
   const matchedRule = await resolvePriorityRule(db, title, description);
   const classification = buildClassification(title, description, matchedRule);
-  const category = matchedRule ? classification.category : (submittedCategory || classification.category);
-  const priority = matchedRule ? classification.priority : (submittedPriority || classification.priority);
-  const assignedTeam = matchedRule ? classification.assignedTeam : (submittedAssignedTeam || classification.assignedTeam);
+  // Production classification is authoritative for create as well as preview.
+  // UI values are treated only as stale-diagnosis evidence; they never override
+  // the D1-backed evaluation engine. This guarantees Preview = Creation = D1.
+  const category = classification.category;
+  const priority = classification.priority;
+  const assignedTeam = classification.assignedTeam;
+  const assignedTeamId = classification.assignedTeamId || null;
   const priorityReviewRequired = classification.priorityReviewRequired;
   const requireImpactDetails = classification.requireImpactDetails;
   const canonicalImpactLevel = classification.impact.level;
   const slaPolicy = await resolveSlaPolicy(db, priority);
 
   // The server classification is authoritative. A diagnosis-driven form sends
-  // the canonical impact level it displayed; reject stale/mismatched submissions
-  // rather than persisting a different impact level from the confirmation UI.
+  // the values it displayed; reject stale/mismatched submissions rather than
+  // silently creating a ticket with a different Production Priority.
+  if (submittedPriority && submittedPriority !== priority) {
+    return json(
+      {
+        error: "STALE_PRIORITY_DIAGNOSIS",
+        message: "Priority Evaluation 已更新，請重新執行 AI 診斷後再建立工單。",
+        expectedPriority: priority,
+        expectedPriorityCode: priorityCode(priority),
+      },
+      409,
+    );
+  }
+
+  if (submittedCategory && submittedCategory !== category) {
+    return json(
+      {
+        error: "STALE_CATEGORY_DIAGNOSIS",
+        message: "Classification Evaluation 已更新，請重新執行 AI 診斷後再建立工單。",
+        expectedCategory: category,
+      },
+      409,
+    );
+  }
+
+  if (submittedAssignedTeam && submittedAssignedTeam !== assignedTeam) {
+    return json(
+      {
+        error: "STALE_ASSIGNMENT_DIAGNOSIS",
+        message: "Routing Evaluation 已更新，請重新執行 AI 診斷後再建立工單。",
+        expectedAssignedTeam: assignedTeam,
+      },
+      409,
+    );
+  }
+
+  // The canonical impact level is validated using the same policy.
   if (submittedImpactLevel && submittedImpactLevel !== canonicalImpactLevel) {
     return json(
       {
@@ -448,12 +487,13 @@ async function createTicket(
             (id, ticket_number, requester_hash, requester_name, requester_email,
              department, title, description, category, priority, priority_suggestion,
              priority_review_required, service_interruption, impact_scope, source,
-             location, asset_tag, assigned_team, classification_service, impact_level,
+             location, asset_tag, assigned_team, assigned_team_id, ai_suggested_team_id,
+             classification_service, classification_work_type, classification_service_state, impact_level,
              classification_source, classification_confidence, priority_rule_name,
              priority_review_reason, sla_policy_code, sla_started_at, response_due_at,
              resolution_due_at, escalation_due_at, sla_response_status,
              sla_resolution_status, sla_escalation_level, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '待處理', ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '待處理', ?, ?)`,
         )
         .bind(
           id,
@@ -474,7 +514,11 @@ async function createTicket(
           location,
           assetTag,
           assignedTeam,
+          assignedTeamId,
+          assignedTeamId,
           classification.service.serviceKey,
+          classifyWorkType(`${title} ${description}`).kind,
+          classification.impact.serviceState,
           canonicalImpactLevel,
           classification.classificationSource,
           classification.confidence,
@@ -533,6 +577,12 @@ async function createTicket(
         title,
         description,
         category,
+        priority,
+        assignedTeam,
+        assignedTeamId,
+        impactLevel: canonicalImpactLevel,
+        classificationSource: classification.classificationSource,
+        classificationConfidence: classification.confidence,
         priority,
         prioritySuggestion: matchedRule ? priority : null,
         priorityReviewRequired,
