@@ -54,6 +54,10 @@ const semanticAliases: Array<[RegExp, string]> = [
     "全公司 網域登入 failure down",
   ],
   [
+    /(?:(?:公司)(?:的)?\s*(?:所有|全部|全數)|(?:所有|全部|全數)\s*公司(?:的)?|全公司(?:的)?\s*(?:所有|全部|全數)?)\s*(?:電腦|pc|computer)\s*(?:目前|現在)?\s*(?:都|全部|全數)?\s*(?:無法|不能)\s*(?:上網|連網|連線|連接網路|連外)/g,
+    "全公司 網路 服務中斷",
+  ],
+  [
     /(?:公司|全公司)(?:的)?(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:全部|全面|全數)(?:中斷|斷線|斷網|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)|(?:公司|全公司)(?:的)?(?:全部|全面|全數)(?:wifi|wi-fi|wi\s*fi|無線網路|無線網)(?:中斷|斷線|斷網|無法上網|不能上網|無法連線|不能連線|無法連網|不能連網)/g,
     "全公司 網路 服務中斷",
   ],
@@ -397,7 +401,13 @@ export function analyzeImpact(
   const request =
     workType.kind === "request";
 
-  const departmentPattern = /部門|(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}部/u;
+  // Avoid treating the generic quantity word "全部" as a department name.
+  // The previous pattern could match the trailing "全+部" in phrases such as
+  // "公司全部電腦都無法上網", incorrectly downgrading company-wide outages to
+  // department impact. A real department suffix must not be immediately
+  // preceded by "全"; explicit "部門" wording remains supported.
+  const departmentPattern =
+    /部門|(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}(?<!全)部/u;
   const departmentScope = departmentPattern.test(text);
   const workforceWideScope = /所有使用者受影響/.test(text);
 
