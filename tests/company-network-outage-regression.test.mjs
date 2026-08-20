@@ -49,6 +49,22 @@ test("company device Wi-Fi outage wording is company-wide", () => {
   }
 });
 
+test("company all Wi-Fi outage wording is company-wide", () => {
+  const input = "公司所有 Wi-Fi，從早上開始一直斷線";
+  const normalized = normalizeSemanticText(input);
+  const impact = analyzeImpact(input);
+  const service = classifyService(input);
+
+  assert.match(normalized, /全公司/, input);
+  assert.match(normalized, /網路|wifi|wi-fi|無線網/, input);
+  assert.equal(impact.level, "company_wide", input);
+  assert.equal(impact.label, "全公司", input);
+  assert.equal(impact.serviceState, "outage", input);
+  assert.equal(classifyWorkType(input).kind, "incident", input);
+  assert.equal(service.serviceKey, "core-network", input);
+  assert.equal(service.assignedTeam, "網路維運組", input);
+});
+
 test("department-wide network outages remain department impact", () => {
   for (const input of [
     "財務部全部電腦都無法上網",
