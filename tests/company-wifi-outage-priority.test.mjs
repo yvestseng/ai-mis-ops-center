@@ -20,6 +20,11 @@ const impactAliasMigration = fs.readFileSync(
   "utf8",
 );
 
+const allWifiAliasMigration = fs.readFileSync(
+  new URL("../drizzle/0028_company_all_wifi_outage_alias.sql", import.meta.url),
+  "utf8",
+);
+
 function assertCompanyWifiOutage(input) {
   const normalized = normalizeSemanticText(input);
   assert.match(normalized, /全公司|所有使用者受影響/, input);
@@ -57,6 +62,10 @@ test("common Wi-Fi and wireless company-wide outage variants keep P1 impact sema
     "公司無線網全部斷線",
     "全公司無法連WiFi",
     "全公司無法連線WiFi",
+    "公司所有 Wi-Fi，從早上開始一直斷線",
+    "公司全部 WiFi 從早上開始一直斷線",
+    "公司所有無線網路一直中斷",
+    "公司全數 Wi-Fi 都無法連線",
   ]) {
     assertCompanyWifiOutage(input);
   }
@@ -113,5 +122,11 @@ test("D1 Wi-Fi vocabulary keeps the existing P1 outage safety gate and review re
   assert.match(impactAliasMigration, /所有人員/);
   assert.match(impactAliasMigration, /所有使用者受影響/);
   assert.match(impactAliasMigration, /priority_review_required = 1/);
+  assert.match(allWifiAliasMigration, /公司所有WiFi斷線/);
+  assert.match(allWifiAliasMigration, /公司所有Wi-Fi斷線/);
+  assert.match(allWifiAliasMigration, /公司全部WiFi斷線/);
+  assert.match(allWifiAliasMigration, /公司所有無線網路斷線/);
+  assert.match(allWifiAliasMigration, /公司全數WiFi無法連線/);
+  assert.match(allWifiAliasMigration, /priority_review_required = 1/);
+  assert.match(allWifiAliasMigration, /require_impact_details = 1/);
 });
-
