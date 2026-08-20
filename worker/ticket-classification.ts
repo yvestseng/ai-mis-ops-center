@@ -107,7 +107,7 @@ export function normalizeSemanticText(value: string) {
   let normalized = value
     .toLowerCase()
     .normalize("NFKC")
-    .replace(/[，。；、：！？（）【】「」『』]/g, " ")
+    .replace(/[,，。；、：！？（）【】「」『』]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
