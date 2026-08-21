@@ -44,3 +44,6 @@ site-creator-d1-*.sql
 # Must not create a new Git commit after the deployed commit SHA is recorded.
 
 release-output/
+
+# Generated final release packages
+release-package/
