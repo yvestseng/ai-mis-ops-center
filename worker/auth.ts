@@ -40,6 +40,8 @@ export type Identity = {
 type PasswordRecord = {
   passwordHash: string;
   passwordSalt: string;
+  passwordAlgorithm: "PBKDF2-SHA256";
+  passwordIterations: number;
 };
 
 const SESSION_COOKIE = "mis_session";
@@ -47,10 +49,14 @@ const SESSION_SECONDS = 8 * 60 * 60;
 const LOGIN_WINDOW_MINUTES = 15;
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_LOCK_MINUTES = 15;
-// Cloudflare's hosted runtime rejects the previous 150,000-iteration request.
-// This test environment uses a bounded PBKDF2 cost so authentication remains
-// inside the Worker CPU budget. Production identity will move to Entra ID.
-const PBKDF2_ITERATIONS = 10_000;
+// Cloudflare's hosted runtime previously rejected a 150,000-iteration request.
+// Use a materially stronger bounded cost that remains within the Worker CPU budget.
+// The per-account iteration count is persisted so this value can be raised later
+// without breaking existing accounts. Successful login transparently rehashes
+// legacy 10,000-iteration records to this target.
+const PASSWORD_ALGORITHM = "PBKDF2-SHA256" as const;
+const LEGACY_PBKDF2_ITERATIONS = 10_000;
+const PBKDF2_TARGET_ITERATIONS = 100_000;
 const encoder = new TextEncoder();
 
 const jsonHeaders = {
@@ -136,7 +142,11 @@ async function sha256(value: string) {
   return bytesToHex(new Uint8Array(digest));
 }
 
-async function derivePasswordHash(password: string, saltHex: string) {
+async function derivePasswordHash(
+  password: string,
+  saltHex: string,
+  iterations: number,
+) {
   const salt =
     saltHex.match(/.{1,2}/g)?.map((value) => Number.parseInt(value, 16)) || [];
   const key = await crypto.subtle.importKey(
@@ -151,7 +161,7 @@ async function derivePasswordHash(password: string, saltHex: string) {
       name: "PBKDF2",
       hash: "SHA-256",
       salt: new Uint8Array(salt),
-      iterations: PBKDF2_ITERATIONS,
+      iterations,
     },
     key,
     256,
@@ -166,7 +176,13 @@ export async function createPasswordRecord(
   const passwordSalt = bytesToHex(salt);
   return {
     passwordSalt,
-    passwordHash: await derivePasswordHash(password, passwordSalt),
+    passwordAlgorithm: PASSWORD_ALGORITHM,
+    passwordIterations: PBKDF2_TARGET_ITERATIONS,
+    passwordHash: await derivePasswordHash(
+      password,
+      passwordSalt,
+      PBKDF2_TARGET_ITERATIONS,
+    ),
   };
 }
 
@@ -174,8 +190,9 @@ async function verifyPassword(
   password: string,
   expectedHash: string,
   salt: string,
+  iterations = LEGACY_PBKDF2_ITERATIONS,
 ) {
-  const actualHash = await derivePasswordHash(password, salt);
+  const actualHash = await derivePasswordHash(password, salt, iterations);
   if (actualHash.length !== expectedHash.length) return false;
   let mismatch = 0;
   for (let index = 0; index < actualHash.length; index += 1) {
@@ -218,6 +235,8 @@ const requiredAuthColumns: Record<string, string[]> = {
     "role_id",
     "password_hash",
     "password_salt",
+    "password_algorithm",
+    "password_iterations",
     "password_changed_at",
     "must_change_password",
     "status",
@@ -286,18 +305,15 @@ async function ensureDemoAccounts(db: D1Database) {
         .prepare(
           `INSERT INTO app_users
             (id, username, email, display_name, department, team_id, is_assignable, role_id,
-             password_hash, password_salt, password_changed_at, status,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+             password_hash, password_salt, password_algorithm, password_iterations,
+             password_changed_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              username = excluded.username,
              email = excluded.email,
              display_name = excluded.display_name,
              department = excluded.department,
              role_id = excluded.role_id,
-             password_hash = excluded.password_hash,
-             password_salt = excluded.password_salt,
-             password_changed_at = excluded.password_changed_at,
              status = 'active',
              updated_at = excluded.updated_at`,
         )
@@ -312,6 +328,8 @@ async function ensureDemoAccounts(db: D1Database) {
           account.roleId,
           account.passwordHash,
           account.passwordSalt,
+          PASSWORD_ALGORITHM,
+          LEGACY_PBKDF2_ITERATIONS,
           now,
           now,
           now,
@@ -529,6 +547,8 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
         `SELECT u.id, u.username, u.email, u.display_name AS displayName,
                 u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.must_change_password AS mustChangePassword, u.role_id AS roleId, u.password_hash AS passwordHash,
                 u.password_salt AS passwordSalt,
+                u.password_algorithm AS passwordAlgorithm,
+                u.password_iterations AS passwordIterations,
                 r.code AS roleCode, r.name AS roleName, r.permissions
          FROM app_users u JOIN roles r ON r.id = u.role_id
          WHERE (lower(u.username) = ? OR lower(u.email) = ?)
@@ -547,6 +567,7 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
         password,
         row.passwordHash,
         row.passwordSalt,
+        Number(row.passwordIterations || LEGACY_PBKDF2_ITERATIONS),
       );
     } catch (error) {
       console.error("Password verification failed", error);
@@ -577,6 +598,34 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
       { error: "PORTAL_ROLE_MISMATCH", message: "一般使用者請從使用者前台登入。" },
       403,
     );
+  }
+
+  const storedIterations = Number(
+    row.passwordIterations || LEGACY_PBKDF2_ITERATIONS,
+  );
+  if (
+    row.passwordAlgorithm !== PASSWORD_ALGORITHM ||
+    storedIterations < PBKDF2_TARGET_ITERATIONS
+  ) {
+    const upgraded = await createPasswordRecord(password);
+    const upgradedAt = new Date().toISOString();
+    await db
+      .prepare(
+        `UPDATE app_users
+         SET password_hash = ?, password_salt = ?, password_algorithm = ?,
+             password_iterations = ?, password_changed_at = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        upgraded.passwordHash,
+        upgraded.passwordSalt,
+        upgraded.passwordAlgorithm,
+        upgraded.passwordIterations,
+        upgradedAt,
+        upgradedAt,
+        row.id,
+      )
+      .run();
   }
 
   await recordLoginAttempt(db, username, rate.ipHash, true);
@@ -683,13 +732,45 @@ export async function handleChangePasswordRequest(request: Request, db: D1Databa
     return json({ error: "PASSWORD_POLICY", message: "新密碼至少 8 碼，且必須包含英文大小寫字母、數字與特殊符號。" }, 400);
   }
   if (currentPassword === newPassword) return json({ error: "PASSWORD_REUSED", message: "新密碼不可與目前密碼相同。" }, 400);
-  const account = await db.prepare("SELECT password_hash AS passwordHash, password_salt AS passwordSalt FROM app_users WHERE id = ? AND status = 'active'").bind(identityResult.identity.id).first<{ passwordHash: string | null; passwordSalt: string | null }>();
-  if (!account?.passwordHash || !account.passwordSalt || !(await verifyPassword(currentPassword, account.passwordHash, account.passwordSalt))) {
+  const account = await db
+    .prepare(
+      `SELECT password_hash AS passwordHash, password_salt AS passwordSalt,
+              password_algorithm AS passwordAlgorithm,
+              password_iterations AS passwordIterations
+       FROM app_users
+       WHERE id = ? AND status = 'active'`,
+    )
+    .bind(identityResult.identity.id)
+    .first<{
+      passwordHash: string | null;
+      passwordSalt: string | null;
+      passwordAlgorithm: string | null;
+      passwordIterations: number | null;
+    }>();
+  if (!account?.passwordHash || !account.passwordSalt || !(await verifyPassword(
+    currentPassword,
+    account.passwordHash,
+    account.passwordSalt,
+    Number(account.passwordIterations || LEGACY_PBKDF2_ITERATIONS),
+  ))) {
     return json({ error: "CURRENT_PASSWORD_INVALID", message: "目前密碼不正確。" }, 400);
   }
   const record = await createPasswordRecord(newPassword);
   await db.batch([
-    db.prepare("UPDATE app_users SET password_hash=?, password_salt=?, password_changed_at=?, must_change_password=0, updated_at=? WHERE id=?").bind(record.passwordHash, record.passwordSalt, new Date().toISOString(), new Date().toISOString(), identityResult.identity.id),
+    db.prepare(
+      `UPDATE app_users
+       SET password_hash=?, password_salt=?, password_algorithm=?, password_iterations=?,
+           password_changed_at=?, must_change_password=0, updated_at=?
+       WHERE id=?`,
+    ).bind(
+      record.passwordHash,
+      record.passwordSalt,
+      record.passwordAlgorithm,
+      record.passwordIterations,
+      new Date().toISOString(),
+      new Date().toISOString(),
+      identityResult.identity.id,
+    ),
     db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(identityResult.identity.id),
   ]);
   await audit(db, identityResult.identity, "change_password", "user", identityResult.identity.id);

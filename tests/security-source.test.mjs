@@ -48,3 +48,31 @@ test("Cloudflare compatibility flags are declared only in wrangler config", asyn
   assert.doesNotMatch(viteConfig, /compatibility_flags\s*:/);
   assert.match(wranglerConfig, /"compatibility_flags"\s*:\s*\["nodejs_compat"\]/);
 });
+
+
+test("password hashing records algorithm and iteration metadata with transparent legacy upgrade", async () => {
+  const [auth, schema, migration, admin] = await Promise.all([
+    read("worker/auth.ts"),
+    read("db/schema.ts"),
+    read("drizzle/0030_password_hash_hardening.sql"),
+    read("worker/admin.ts"),
+  ]);
+
+  assert.match(auth, /PBKDF2_TARGET_ITERATIONS = 100_000/);
+  assert.match(auth, /LEGACY_PBKDF2_ITERATIONS = 10_000/);
+  assert.match(auth, /password_iterations/);
+  assert.match(auth, /storedIterations < PBKDF2_TARGET_ITERATIONS/);
+  assert.match(auth, /upgraded\.passwordIterations/);
+  assert.match(schema, /passwordIterations: integer\("password_iterations"\)/);
+  assert.match(migration, /ALTER TABLE app_users ADD COLUMN password_iterations/);
+  assert.match(admin, /passwordRecord\.passwordIterations/);
+});
+
+test("production smoke test enforces both portals and verifies logout invalidation", async () => {
+  const smoke = await read("scripts/production-smoke-test.mjs");
+  assert.match(smoke, /portal:\s*"admin"/);
+  assert.match(smoke, /portal:\s*"user"/);
+  assert.match(smoke, /User rejected by admin portal/);
+  assert.match(smoke, /Admin rejected by user portal/);
+  assert.match(smoke, /Admin session invalidated/);
+});

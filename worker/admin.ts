@@ -153,9 +153,9 @@ async function createUser(
       .prepare(
         `INSERT INTO app_users
           (id, username, email, display_name, department, team_id, is_assignable, role_id,
-           password_hash, password_salt, password_changed_at, must_change_password,
-           status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)`,
+           password_hash, password_salt, password_algorithm, password_iterations,
+           password_changed_at, must_change_password, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)`,
       )
       .bind(
         id,
@@ -168,6 +168,8 @@ async function createUser(
         roleId,
         passwordRecord.passwordHash,
         passwordRecord.passwordSalt,
+        passwordRecord.passwordAlgorithm,
+        passwordRecord.passwordIterations,
         now,
         now,
         now,
@@ -352,6 +354,7 @@ async function update(
                  role_id = COALESCE(NULLIF(?, ''), role_id),
                  status = COALESCE(NULLIF(?, ''), status),
                  password_hash = ?, password_salt = ?,
+                 password_algorithm = ?, password_iterations = ?,
                  password_changed_at = ?, must_change_password = 1, updated_at = ?
              WHERE id = ?`,
           )
@@ -368,6 +371,8 @@ async function update(
             clean(data.status, 20),
             passwordRecord.passwordHash,
             passwordRecord.passwordSalt,
+            passwordRecord.passwordAlgorithm,
+            passwordRecord.passwordIterations,
             now,
             now,
             id,

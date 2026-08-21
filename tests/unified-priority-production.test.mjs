@@ -35,6 +35,6 @@ test('production smoke test covers login, navigation and core governance APIs', 
   assert.match(smoke, /Classification Quality page/);
   assert.match(smoke, /Review queue API/);
   assert.match(smoke, /Quality KPI API/);
-  assert.match(smoke, /Priority Evaluation smoke/);
+  assert.match(smoke, /P1 priority diagnose/);
   assert.match(smoke, /process\.env\.ADMIN_PASSWORD/);
 });

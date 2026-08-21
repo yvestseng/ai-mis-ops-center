@@ -65,6 +65,8 @@ export const appUsers = sqliteTable(
       .references(() => roles.id),
     passwordHash: text("password_hash"),
     passwordSalt: text("password_salt"),
+    passwordAlgorithm: text("password_algorithm").default("PBKDF2-SHA256").notNull(),
+    passwordIterations: integer("password_iterations").default(10_000).notNull(),
     passwordChangedAt: text("password_changed_at"),
     mustChangePassword: integer("must_change_password", { mode: "boolean" }).default(false).notNull(),
     status: text().default("active").notNull(),
