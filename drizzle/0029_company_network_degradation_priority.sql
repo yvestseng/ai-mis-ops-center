@@ -1,3 +1,4 @@
+-- Migration 0029: extend P1 governance wording for severe broad network degradation.
 -- Treat severe company/site-wide core-network degradation as a P1 major incident.
 -- Runtime logic in worker/tickets.ts still gates this rule by semantic scope,
 -- service type and degradation severity, so department/single-user slowness does

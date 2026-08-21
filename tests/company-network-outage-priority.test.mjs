@@ -55,6 +55,7 @@ test("common company-wide network outage variants preserve P1 impact semantics",
 test("P1 remains gated by outage or severe broad network degradation and P2 core-network rule remains available", () => {
   assert.match(tickets, /priority-p1-major-outage/);
   assert.match(tickets, /severeNetworkDegradation/);
+  assert.match(tickets, /isSevereNetworkDegradationText/);
   assert.match(tickets, /qualifyingMajorIncident/);
   assert.match(tickets, /priority-p2-core-network|resolvePriorityRule/);
   assert.match(migration, /priority-p1-major-outage/);

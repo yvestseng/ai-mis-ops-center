@@ -124,6 +124,16 @@ function evidence(text: string, patterns: Array<[RegExp, string]>) {
     .map(([, label]) => label);
 }
 
+const degradationSymptomPattern =
+  /異常|很慢|非常慢|緩慢|非常緩慢|嚴重緩慢|速度(?:很|非常)?慢|速度緩慢|網路變慢|上網變慢|效能(?:嚴重)?變慢|反應(?:很|非常)?慢|延遲|嚴重延遲|高延遲|latency|slow|slowness|不穩|偶發|部分|間歇|packet\s*loss|丟包/;
+
+const severeNetworkDegradationPattern =
+  /很慢|非常慢|緩慢|非常緩慢|嚴重緩慢|速度(?:很|非常)?慢|速度緩慢|網路變慢|上網變慢|效能(?:嚴重)?變慢|反應(?:很|非常)?慢|嚴重延遲|高延遲|latency|slow|slowness|packet\s*loss|大量丟包|幾乎無法(?:使用|工作|上網)/;
+
+export function isSevereNetworkDegradationText(rawText: string) {
+  return severeNetworkDegradationPattern.test(normalizeSemanticText(rawText));
+}
+
 export function classifyWorkType(
   rawText: string,
 ): WorkTypeClassification {
@@ -131,7 +141,7 @@ export function classifyWorkType(
 
   const incidentPatterns: Array<[RegExp, string]> = [
     [
-      /failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|斷網|掛掉|掛了|很慢|非常慢|速度慢|延遲|高延遲|不穩|packet\s*loss|丟包/,
+      /failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|斷網|掛掉|掛了|很慢|非常慢|緩慢|非常緩慢|嚴重緩慢|速度(?:很|非常)?慢|速度緩慢|網路變慢|上網變慢|效能(?:嚴重)?變慢|反應(?:很|非常)?慢|延遲|嚴重延遲|高延遲|latency|slow|slowness|不穩|packet\s*loss|丟包/,
       "故障／異常",
     ],
     [
@@ -401,10 +411,7 @@ export function analyzeImpact(
       text,
     );
 
-  const degraded =
-    /異常|很慢|非常慢|速度慢|延遲|高延遲|不穩|偶發|部分|間歇|packet\s*loss|丟包/.test(
-      text,
-    );
+  const degraded = degradationSymptomPattern.test(text);
 
   const request =
     workType.kind === "request";

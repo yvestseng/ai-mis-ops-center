@@ -10,6 +10,7 @@ import {
   analyzeImpact,
   classifyService,
   classifyWorkType,
+  isSevereNetworkDegradationText,
   normalizeSemanticText,
   priorityCode,
 } from "./ticket-classification";
@@ -131,7 +132,7 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
         service.serviceKey === "core-network" &&
         impact.serviceState === "degraded" &&
         (impact.level === "company_wide" || impact.level === "site_wide") &&
-        /很慢|非常慢|速度(?:很|非常)?慢|嚴重延遲|高延遲|latency|packet\s*loss|大量丟包|幾乎無法(?:使用|工作|上網)/.test(content);
+        isSevereNetworkDegradationText(content);
       const departmentOrMultiUserOutage =
         rule.id === "priority-p2-department-outage" &&
         impact.serviceState === "outage" &&

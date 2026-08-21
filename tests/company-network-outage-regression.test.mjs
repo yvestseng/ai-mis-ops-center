@@ -5,6 +5,7 @@ import {
   analyzeImpact,
   classifyService,
   classifyWorkType,
+  isSevereNetworkDegradationText,
   normalizeSemanticText,
 } from "../worker/ticket-classification.ts";
 
@@ -48,6 +49,7 @@ test("company device Wi-Fi outage wording is company-wide", () => {
     assert.equal(classifyService(input).serviceKey, "core-network", input);
   }
 });
+
 
 test("company all Wi-Fi outage wording is company-wide", () => {
   const input = "公司所有 Wi-Fi，從早上開始一直斷線";
@@ -112,6 +114,11 @@ test("company-wide severe Internet degradation is treated as a major incident si
     "所有員工上網速度很慢",
     "全公司網路嚴重延遲",
     "公司所有使用者 Internet 高延遲",
+    "全公司 Internet 嚴重緩慢，自早上開始持續發生",
+    "全公司網路速度非常緩慢",
+    "公司所有人上網速度緩慢",
+    "所有員工 Internet 都變得很慢",
+    "全公司網路效能嚴重變慢",
   ]) {
     const impact = analyzeImpact(input);
 
@@ -120,6 +127,7 @@ test("company-wide severe Internet degradation is treated as a major incident si
     assert.equal(impact.serviceState, "degraded", input);
     assert.equal(classifyWorkType(input).kind, "incident", input);
     assert.equal(classifyService(input).serviceKey, "core-network", input);
+    assert.equal(isSevereNetworkDegradationText(input), true, input);
   }
 });
 
@@ -127,6 +135,9 @@ test("network degradation does not inflate department or single-user scope", () 
   for (const [input, expectedLevel] of [
     ["財務部所有人上網都很慢", "department"],
     ["我的電腦 WiFi 很慢", "single_user"],
+    ["財務部 Internet 嚴重緩慢", "department"],
+    ["我的 Internet 很緩慢", "single_user"],
+    ["我的 WiFi 速度很慢", "single_user"],
   ]) {
     const impact = analyzeImpact(input);
 
