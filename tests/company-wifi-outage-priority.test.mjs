@@ -113,7 +113,8 @@ test("single-user Wi-Fi problem is not promoted to company-wide impact", () => {
 
 test("D1 Wi-Fi vocabulary keeps the existing P1 outage safety gate and review requirements", () => {
   assert.match(tickets, /priority-p1-major-outage/);
-  assert.match(tickets, /impact\.serviceState !== "outage"/);
+  assert.match(tickets, /qualifyingMajorIncident/);
+  assert.match(tickets, /severeNetworkDegradation/);
   assert.match(migration, /公司WIFI全部中斷/);
   assert.match(migration, /公司Wi-Fi全部中斷/);
   assert.match(migration, /全公司無法連WiFi/);
@@ -130,3 +131,4 @@ test("D1 Wi-Fi vocabulary keeps the existing P1 outage safety gate and review re
   assert.match(allWifiAliasMigration, /priority_review_required = 1/);
   assert.match(allWifiAliasMigration, /require_impact_details = 1/);
 });
+

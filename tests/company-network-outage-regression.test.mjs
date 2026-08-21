@@ -104,3 +104,35 @@ test("department Wi-Fi connection failure is recognized as an outage", () => {
   assert.equal(classifyWorkType(input).kind, "incident");
   assert.equal(classifyService(input).serviceKey, "core-network");
 });
+
+test("company-wide severe Internet degradation is treated as a major incident signal", () => {
+  for (const input of [
+    "公司所有人上網際網路都很慢，從早上開始發生",
+    "全公司 Internet 非常慢",
+    "所有員工上網速度很慢",
+    "全公司網路嚴重延遲",
+    "公司所有使用者 Internet 高延遲",
+  ]) {
+    const impact = analyzeImpact(input);
+
+    assert.equal(impact.level, "company_wide", input);
+    assert.equal(impact.label, "全公司", input);
+    assert.equal(impact.serviceState, "degraded", input);
+    assert.equal(classifyWorkType(input).kind, "incident", input);
+    assert.equal(classifyService(input).serviceKey, "core-network", input);
+  }
+});
+
+test("network degradation does not inflate department or single-user scope", () => {
+  for (const [input, expectedLevel] of [
+    ["財務部所有人上網都很慢", "department"],
+    ["我的電腦 WiFi 很慢", "single_user"],
+  ]) {
+    const impact = analyzeImpact(input);
+
+    assert.equal(impact.level, expectedLevel, input);
+    assert.equal(impact.serviceState, "degraded", input);
+    assert.equal(classifyWorkType(input).kind, "incident", input);
+    assert.equal(classifyService(input).serviceKey, "core-network", input);
+  }
+});

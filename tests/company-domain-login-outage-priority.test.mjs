@@ -82,7 +82,8 @@ test("single-computer domain login failure is not promoted to company-wide impac
 
 test("0023 aligns D1 P1 vocabulary while preserving the existing company-wide outage safety gate", () => {
   assert.match(tickets, /priority-p1-major-outage/);
-  assert.match(tickets, /impact\.serviceState !== "outage"/);
+  assert.match(tickets, /qualifyingMajorIncident/);
+  assert.match(tickets, /severeNetworkDegradation/);
   assert.match(migration, /priority-p1-major-outage/);
   assert.match(migration, /公司電腦都無法登入網域/);
   assert.match(migration, /全公司電腦無法登入AD/);

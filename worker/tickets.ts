@@ -126,6 +126,12 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
     }
 
     const explicit = rules.find((rule) => {
+      const service = classifyService(content);
+      const severeNetworkDegradation =
+        service.serviceKey === "core-network" &&
+        impact.serviceState === "degraded" &&
+        (impact.level === "company_wide" || impact.level === "site_wide") &&
+        /很慢|非常慢|速度(?:很|非常)?慢|嚴重延遲|高延遲|latency|packet\s*loss|大量丟包|幾乎無法(?:使用|工作|上網)/.test(content);
       const departmentOrMultiUserOutage =
         rule.id === "priority-p2-department-outage" &&
         impact.serviceState === "outage" &&
@@ -140,15 +146,20 @@ async function resolvePriorityRule(db: D1Database, title: string, description: s
       // "安裝後失敗" must remain an incident and must not be downgraded.
       if (rule.id === "priority-p4-request") return false;
 
-      // P1 requires both an actual outage and a broad impact scope. This prevents
-      // terms such as "所有人員" inside a single department from being promoted
-      // to company-wide P1 solely because they appear in the D1 vocabulary.
+      // P1 normally requires an actual outage and a broad impact scope. A severe
+      // company/site-wide core-network degradation is also treated as a major
+      // incident because users may still be technically connected while business
+      // operations are effectively unavailable (for example, company-wide Internet
+      // being "很慢" or suffering severe latency/packet loss). Department or
+      // single-user degradation must not be promoted by this exception.
       if (rule.id === "priority-p1-major-outage") {
         const broadImpact =
           impact.level === "company_wide" ||
           impact.level === "site_wide" ||
           (impact.level === "multiple_users" && impact.confidence >= 0.9);
-        if (impact.serviceState !== "outage" || !broadImpact) return false;
+        const qualifyingMajorIncident =
+          (impact.serviceState === "outage" && broadImpact) || severeNetworkDegradation;
+        if (!qualifyingMajorIncident) return false;
       }
 
       // P2 is the middle boundary for a department or a clearly multi-user outage.

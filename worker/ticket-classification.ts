@@ -131,7 +131,7 @@ export function classifyWorkType(
 
   const incidentPatterns: Array<[RegExp, string]> = [
     [
-      /failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|斷網|掛掉|掛了/,
+      /failure|failed|error|down|中斷|故障|異常|失敗|無法|不能使用|不能連線|斷線|斷網|掛掉|掛了|很慢|非常慢|速度慢|延遲|高延遲|不穩|packet\s*loss|丟包/,
       "故障／異常",
     ],
     [
@@ -302,7 +302,7 @@ export function classifyService(
       assignedTeamId: "team-network",
       patterns: [
         [
-          /core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|無線網路|無線網|網路|網絡|斷線|斷網|無法上網|不能上網|無法連網|不能連網/,
+          /core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|無線網路|無線網|網路|網絡|上網|連網|斷線|斷網|無法上網|不能上網|無法連網|不能連網/,
           "網路服務",
         ],
       ],
@@ -402,7 +402,7 @@ export function analyzeImpact(
     );
 
   const degraded =
-    /異常|很慢|延遲|不穩|偶發|部分|間歇/.test(
+    /異常|很慢|非常慢|速度慢|延遲|高延遲|不穩|偶發|部分|間歇|packet\s*loss|丟包/.test(
       text,
     );
 
