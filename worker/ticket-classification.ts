@@ -38,12 +38,16 @@ export type WorkTypeClassification = {
 
 const semanticAliases: Array<[RegExp, string]> = [
   [
-    /整間公司|整個公司|全體同仁|全公司所有人|公司所有人|所有員工|全員/g,
+    /整間公司|整個公司|全體同仁|全公司所有人|公司所有人|所有員工|全員|company[-\s]?wide/g,
     "全公司",
   ],
   [
-    /所有人員|全部人員|全體人員|所有同仁|全部同仁|所有使用者|全部使用者|全體使用者|大家都/g,
+    /所有人員|全部人員|全體人員|所有同仁|全部同仁|所有使用者|全部使用者|全體使用者|大家都|all\s+users|all\s+employees|everyone/g,
     "所有使用者受影響",
+  ],
+  [
+    /整個(?:台北)?總公司|(?:台北)?總公司全體(?:同仁|使用者)|(?:台北)?總公司所有(?:同仁|使用者)|site[-\s]?wide|entire\s+(?:site|office)/g,
+    "主要據點",
   ],
   [
     /公司(?:的)?(?:(?:所有|全部|全數)(?:電腦|pc|computer)|(?:電腦|pc|computer)(?:都|全部|全數))(?:無法|不能)(?:登入|登錄|log\s*in|logon)(?:公司)?(?:網域|domain|ad|active directory)/g,
@@ -80,6 +84,14 @@ const semanticAliases: Array<[RegExp, string]> = [
   [
     /全公司(?:的)?(?:網路|網絡|內網|外網|internet)?(?:中斷|斷線|斷網|無法上網|不能上網|無法連網|不能連網)/g,
     "全公司 網路 服務中斷",
+  ],
+  [
+    /(?:cannot|can't)\s+connect\s+to\s+(?:the\s+)?corporate\s+network|corporate\s+network\s+(?:is\s+)?(?:unavailable|down)/g,
+    "網路 failure down",
+  ],
+  [
+    /(?:both\s+)?(?:wi-?fi|wireless).*(?:wired\s+lan|wired\s+network).*(?:unavailable|down)|(?:wired\s+lan|wired\s+network).*(?:wi-?fi|wireless).*(?:unavailable|down)/g,
+    "網路 服務中斷",
   ],
   [/整個廠區|整廠|全廠區/g, "全廠"],
   [/整個據點|整個辦公室|整棟辦公室/g, "主要據點"],
@@ -312,7 +324,7 @@ export function classifyService(
       assignedTeamId: "team-network",
       patterns: [
         [
-          /core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|無線網路|無線網|網路|網絡|上網|連網|斷線|斷網|無法上網|不能上網|無法連網|不能連網/,
+          /core switch|core router|核心交換器|核心路由器|對外網路|網際網路主線|internet|wifi|wi-fi|wireless|wired\s+(?:lan|network)|corporate\s+network|無線網路|無線網|有線網路|網路|網絡|上網|連網|斷線|斷網|無法上網|不能上網|無法連網|不能連網/,
           "網路服務",
         ],
       ],
@@ -407,7 +419,7 @@ export function analyzeImpact(
   const workType = classifyWorkType(text);
 
   const outage =
-    /failure|down|中斷|服務中斷|無法寄信|無法收信|無法上網|不能上網|無法連網|不能連網|無法使用|無法運作|無法啟動|無法開機|斷線|斷網/.test(
+    /failure|down|中斷|服務中斷|無法寄信|無法收信|無法上網|不能上網|無法連網|不能連網|無法使用|無法運作|無法啟動|無法開機|斷線|斷網|unavailable/.test(
       text,
     );
 
@@ -416,15 +428,63 @@ export function analyzeImpact(
   const request =
     workType.kind === "request";
 
-  // Avoid treating the generic quantity word "全部" as a department name.
-  // The previous pattern could match the trailing "全+部" in phrases such as
-  // "公司全部電腦都無法上網", incorrectly downgrading company-wide outages to
-  // department impact. A real department suffix must not be immediately
-  // preceded by "全"; explicit "部門" wording remains supported.
-  const departmentPattern =
-    /部門|(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}(?<!全)部/u;
-  const departmentScope = departmentPattern.test(text);
+  // Generic language such as "內部系統" or "外部服務" must never be
+  // interpreted as a department merely because the token ends with "部".
+  // Keep support for arbitrary real department names (for example "財務部")
+  // while filtering known non-department suffix words.
+  const departmentTokenPattern =
+    /(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}(?<!全)部/gu;
+  const departmentTokens = text.match(departmentTokenPattern) ?? [];
+  const nonDepartmentTokens = new Set([
+    "內部",
+    "外部",
+    "全部",
+    "總部",
+    "局部",
+  ]);
+  const explicitDepartmentWord = /部門/.test(text);
+  const departmentScope =
+    explicitDepartmentWord ||
+    departmentTokens.some((token) => !nonDepartmentTokens.has(token));
   const workforceWideScope = /所有使用者受影響/.test(text);
+  const broadOrganizationScope =
+    /全公司|全廠|主要據點|大量使用者受影響/.test(text);
+
+  const serviceState: ImpactAnalysis["serviceState"] = outage
+    ? "outage"
+    : degraded
+      ? "degraded"
+      : request
+        ? "request"
+        : "unknown";
+
+  // Explicit broad organization/site wording wins over department-like tokens.
+  // Generic workforce wording remains department-scoped when a real department
+  // is explicitly named, so "財務部所有使用者" stays P2 rather than becoming P1.
+  if (broadOrganizationScope || (workforceWideScope && !departmentScope)) {
+    return {
+      level: broadOrganizationScope && /主要據點/.test(text)
+        ? "site_wide"
+        : "company_wide",
+      label: broadOrganizationScope && /主要據點/.test(text)
+        ? "據點／辦公區"
+        : "全公司",
+      serviceState,
+      confidence: 0.97,
+      evidence: [
+        broadOrganizationScope && /主要據點/.test(text)
+          ? "據點／辦公區"
+          : "全公司",
+        outage
+          ? "服務中斷"
+          : degraded
+            ? "服務降級"
+            : request
+              ? "申請需求"
+              : "影響狀態待確認",
+      ],
+    };
+  }
 
   const scopes: Array<
     [
@@ -434,19 +494,11 @@ export function analyzeImpact(
       number,
     ]
   > = [
-    // Department wording takes precedence over generic workforce wording so
-    // phrases such as "財務部所有人員都無法登入" remain department impact.
     [
       "department",
       "部門",
-      departmentPattern,
+      /(?:)/,
       0.9,
-    ],
-    [
-      "company_wide",
-      "全公司",
-      /全公司|全廠|主要據點|大量使用者受影響|所有使用者受影響/,
-      workforceWideScope && !departmentScope ? 0.96 : 0.97,
     ],
     [
       "site_wide",
@@ -457,7 +509,7 @@ export function analyzeImpact(
     [
       "multiple_users",
       "多位使用者",
-      /多位|多人|數名|一群|部分使用者|使用者們/,
+      /多位|多人|數名|一群|部分使用者|使用者們|幾位使用者|多名使用者/,
       0.78,
     ],
     [
@@ -476,17 +528,14 @@ export function analyzeImpact(
       confidence,
     ] of scopes
   ) {
-    if (pattern.test(text)) {
+    if (
+      (level === "department" && departmentScope) ||
+      (level !== "department" && pattern.test(text))
+    ) {
       return {
         level,
         label,
-        serviceState: outage
-          ? "outage"
-          : degraded
-            ? "degraded"
-            : request
-              ? "request"
-              : "unknown",
+        serviceState,
         confidence,
         evidence: [
           label,
@@ -505,13 +554,7 @@ export function analyzeImpact(
   return {
     level: "unknown",
     label: "待確認",
-    serviceState: outage
-      ? "outage"
-      : degraded
-        ? "degraded"
-        : request
-          ? "request"
-          : "unknown",
+    serviceState,
     confidence:
       outage || degraded || request
         ? 0.66
