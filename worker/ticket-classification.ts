@@ -445,7 +445,12 @@ export function analyzeImpact(
   const explicitDepartmentWord = /部門/.test(text);
   const departmentScope =
     explicitDepartmentWord ||
-    departmentTokens.some((token) => !nonDepartmentTokens.has(token));
+    departmentTokens.some(
+      (token) =>
+        ![...nonDepartmentTokens].some((suffix) =>
+          token.endsWith(suffix),
+        ),
+    );
   const workforceWideScope = /所有使用者受影響/.test(text);
   const broadOrganizationScope =
     /全公司|全廠|主要據點|大量使用者受影響/.test(text);
