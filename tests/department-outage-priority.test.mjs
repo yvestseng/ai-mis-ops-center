@@ -30,6 +30,37 @@ function expectedBoundaryPriority(input) {
   return "P3";
 }
 
+test("department wording without 部 suffix is normalized to P2 department outage", () => {
+  for (const input of [
+    "研發所有人無法上網",
+    "研發全部人不能上網",
+    "研發全體同仁無法連公司 WiFi",
+    "研發處所有人無法上網",
+    "資訊中心全部同仁不能連網",
+  ]) {
+    const impact = analyzeImpact(input);
+
+    assert.equal(classifyWorkType(input).kind, "incident", input);
+    assert.equal(classifyService(input).serviceKey, "core-network", input);
+    assert.equal(impact.level, "department", input);
+    assert.equal(impact.label, "部門", input);
+    assert.equal(impact.serviceState, "outage", input);
+    assert.equal(expectedBoundaryPriority(input), "P2", input);
+  }
+});
+
+test("generic all-user wording and true company wording do not collapse into department scope", () => {
+  for (const input of [
+    "所有人員都無法上網",
+    "公司所有人無法上網",
+    "全公司所有人都不能上網",
+  ]) {
+    const impact = analyzeImpact(input);
+    assert.equal(impact.level, "company_wide", input);
+    assert.equal(expectedBoundaryPriority(input), "P1", input);
+  }
+});
+
 test("P1/P2/P3 Wi-Fi outage boundaries stay separated", () => {
   const cases = [
     ["公司 Wi-Fi，從早上開始一直斷線所有人員都無法連線", "company_wide", "P1"],

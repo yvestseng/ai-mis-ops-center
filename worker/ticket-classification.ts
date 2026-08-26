@@ -38,11 +38,11 @@ export type WorkTypeClassification = {
 
 const semanticAliases: Array<[RegExp, string]> = [
   [
-    /整間公司|整個公司|全體同仁|全公司所有人|公司所有人|所有員工|全員|company[-\s]?wide/g,
+    /整間公司|整個公司|全公司所有人|公司所有人|所有員工|全員|company[-\s]?wide/g,
     "全公司",
   ],
   [
-    /所有人員|全部人員|全體人員|所有同仁|全部同仁|所有使用者|全部使用者|全體使用者|大家都|all\s+users|all\s+employees|everyone/g,
+    /所有人員|全部人員|全體人員|所有同仁|全部同仁|全體同仁|所有使用者|全部使用者|全體使用者|大家都|all\s+users|all\s+employees|everyone/g,
     "所有使用者受影響",
   ],
   [
@@ -433,7 +433,7 @@ export function analyzeImpact(
   // Keep support for arbitrary real department names (for example "財務部")
   // while filtering known non-department suffix words.
   const departmentTokenPattern =
-    /(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}(?<!全)部/gu;
+    /(?:整個|全)?[\p{Script=Han}a-z0-9_-]{1,16}(?<!全)(?:部|處|科|課|組|中心|室)/gu;
   const departmentTokens = text.match(departmentTokenPattern) ?? [];
   const nonDepartmentTokens = new Set([
     "內部",
@@ -443,8 +443,21 @@ export function analyzeImpact(
     "局部",
   ]);
   const explicitDepartmentWord = /部門/.test(text);
+
+  // Users sometimes omit the formal organizational suffix when reporting an
+  // outage, for example "研發所有人無法上網". Recognize common bare
+  // organizational names plus formal unit suffixes, but do not treat arbitrary
+  // words before "所有人" as a department (which could inflate company-wide
+  // incidents incorrectly).
+  const bareOrganizationScopePattern =
+    /(?:^|\s)(?:研發|財務|資訊|人資|人事|業務|採購|製造|生產|品保|品質|工程|法務|行政|客服|倉儲|物流)\s*(?:所有人|全部人|全體人|所有人員|全部人員|全體人員|所有同仁|全部同仁|全體同仁|所有使用者受影響)/u;
+  const namedOrganizationAllPeopleScope =
+    bareOrganizationScopePattern.test(text);
+
+
   const departmentScope =
     explicitDepartmentWord ||
+    namedOrganizationAllPeopleScope ||
     departmentTokens.some(
       (token) =>
         ![...nonDepartmentTokens].some((suffix) =>
