@@ -1,3 +1,4 @@
+import { createMfaChallenge, prepareMfaEnrollment } from "./mfa";
 export type Permission =
   | "dashboard.read"
   | "tickets.create"
@@ -35,6 +36,9 @@ export type Identity = {
   teamId: string | null;
   isAssignable: boolean;
   mustChangePassword: boolean;
+  mfaVerified: boolean;
+  mfaVerifiedAt: string | null;
+  mfaMethod: string | null;
 };
 
 type PasswordRecord = {
@@ -241,7 +245,10 @@ const requiredAuthColumns: Record<string, string[]> = {
     "must_change_password",
     "status",
   ],
-  auth_sessions: ["id", "user_id", "token_hash", "expires_at", "revoked_at"],
+  auth_sessions: ["id", "user_id", "token_hash", "expires_at", "revoked_at", "mfa_verified", "mfa_verified_at", "mfa_method"],
+  user_mfa_settings: ["id", "user_id", "method", "secret_ciphertext", "secret_iv", "is_enabled", "verified_at", "last_totp_step"],
+  user_mfa_recovery_codes: ["id", "user_id", "mfa_setting_id", "code_hash", "used_at"],
+  auth_mfa_challenges: ["id", "user_id", "token_hash", "portal", "purpose", "ip_hash", "expires_at", "consumed_at"],
   audit_logs: ["id", "actor_email", "action", "entity_type", "created_at"],
   login_attempts: ["id", "login_key", "ip_hash", "succeeded", "created_at"],
 };
@@ -356,6 +363,9 @@ function toIdentity(row: Record<string, string | null>): Identity {
     roleCode: String(row.roleCode),
     roleName: String(row.roleName),
     permissions,
+    mfaVerified: Number(row.mfaVerified || 0) === 1,
+    mfaVerifiedAt: row.mfaVerifiedAt ? String(row.mfaVerifiedAt) : null,
+    mfaMethod: row.mfaMethod ? String(row.mfaMethod) : null,
   };
 }
 
@@ -371,7 +381,8 @@ export async function getIdentity(
     .prepare(
       `SELECT u.id, u.username, u.email, u.display_name AS displayName,
               u.department, u.team_id AS teamId, u.is_assignable AS isAssignable, u.must_change_password AS mustChangePassword, u.role_id AS roleId,
-              r.code AS roleCode, r.name AS roleName, r.permissions
+              r.code AS roleCode, r.name AS roleName, r.permissions,
+              s.mfa_verified AS mfaVerified, s.mfa_verified_at AS mfaVerifiedAt, s.mfa_method AS mfaMethod
        FROM auth_sessions s
        JOIN app_users u ON u.id = s.user_id
        JOIN roles r ON r.id = u.role_id
@@ -395,7 +406,7 @@ export function hasPermission(identity: Identity, permission: Permission) {
 export async function requireIdentity(
   request: Request,
   db: D1Database,
-  options: { allowPasswordChange?: boolean } = {},
+  options: { allowPasswordChange?: boolean; allowMfaPending?: boolean } = {},
 ) {
   const identity = await getIdentity(request, db);
   if (!identity) {
@@ -412,6 +423,16 @@ export async function requireIdentity(
       identity,
       response: json(
         { error: "PASSWORD_CHANGE_REQUIRED", message: "首次登入後必須先變更密碼。" },
+        403,
+      ),
+    };
+  }
+  const mfaRequired = identity.roleCode === "admin" || identity.roleCode === "operator";
+  if (mfaRequired && !identity.mfaVerified && !options.allowMfaPending) {
+    return {
+      identity,
+      response: json(
+        { error: "MFA_REQUIRED", message: "管理／維運帳號必須先完成多因素驗證。" },
         403,
       ),
     };
@@ -490,7 +511,74 @@ async function recordLoginAttempt(
   ]);
 }
 
-async function handleLoginCore(request: Request, db: D1Database, allowDemoAccounts: boolean) {
+async function createSessionResponse(
+  request: Request,
+  db: D1Database,
+  identity: Identity,
+  options: {
+    mfaVerified: boolean;
+    mfaMethod?: "totp" | "recovery" | null;
+    auditAction?: string;
+  },
+) {
+  const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+  const tokenHash = await sha256(token);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SESSION_SECONDS * 1000);
+  const mfaVerifiedAt = options.mfaVerified ? now.toISOString() : null;
+  try {
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO auth_sessions
+            (id, user_id, token_hash, expires_at, created_at, last_seen_at,
+             mfa_verified, mfa_verified_at, mfa_method)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          identity.id,
+          tokenHash,
+          expiresAt.toISOString(),
+          now.toISOString(),
+          now.toISOString(),
+          options.mfaVerified ? 1 : 0,
+          mfaVerifiedAt,
+          options.mfaMethod || null,
+        ),
+      db
+        .prepare("UPDATE app_users SET last_login_at = ? WHERE id = ?")
+        .bind(now.toISOString(), identity.id),
+    ]);
+  } catch (error) {
+    console.error("Authentication session write failed", error);
+    throw new Error("AUTH_SESSION_WRITE", { cause: error });
+  }
+
+  const sessionIdentity: Identity = {
+    ...identity,
+    mfaVerified: options.mfaVerified,
+    mfaVerifiedAt,
+    mfaMethod: options.mfaMethod || null,
+  };
+  try {
+    await audit(db, sessionIdentity, options.auditAction || "login", "session", null, {
+      username: sessionIdentity.username,
+      role: sessionIdentity.roleCode,
+      mfaVerified: sessionIdentity.mfaVerified,
+      mfaMethod: sessionIdentity.mfaMethod,
+    });
+  } catch (error) {
+    console.error("Login audit failed", error);
+  }
+  return json(
+    { ok: true, user: sessionIdentity, message: `歡迎登入，${sessionIdentity.displayName}。` },
+    200,
+    { "set-cookie": sessionCookie(request, token) },
+  );
+}
+
+async function handleLoginCore(request: Request, db: D1Database, allowDemoAccounts: boolean, mfaEncryptionKey?: string) {
   if (request.method !== "POST") {
     return json({ message: "不支援此操作。" }, 405);
   }
@@ -629,61 +717,113 @@ async function handleLoginCore(request: Request, db: D1Database, allowDemoAccoun
   }
 
   await recordLoginAttempt(db, username, rate.ipHash, true);
-  const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
-  const tokenHash = await sha256(token);
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + SESSION_SECONDS * 1000);
-  try {
-    await db.batch([
-      db
-        .prepare(
-          `INSERT INTO auth_sessions
-            (id, user_id, token_hash, expires_at, created_at, last_seen_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          crypto.randomUUID(),
-          row.id,
-          tokenHash,
-          expiresAt.toISOString(),
-          now.toISOString(),
-          now.toISOString(),
-        ),
-      db
-        .prepare("UPDATE app_users SET last_login_at = ? WHERE id = ?")
-        .bind(now.toISOString(), row.id),
-    ]);
-  } catch (error) {
-    console.error("Authentication session write failed", error);
-    throw new Error("AUTH_SESSION_WRITE", { cause: error });
-  }
   const identity = toIdentity(row);
-  try {
-    await audit(db, identity, "login", "session", null, {
-      username: identity.username,
-      role: identity.roleCode,
+  const mfaRequired = identity.roleCode === "admin" || identity.roleCode === "operator";
+
+  // Preserve first-login password rotation before MFA enrollment.  This is a
+  // deliberately restricted session: requireIdentity() will allow only the
+  // password-change route until the password is changed, then that route
+  // revokes all sessions.
+  if (mfaRequired && identity.mustChangePassword) {
+    return createSessionResponse(request, db, identity, {
+      mfaVerified: false,
+      mfaMethod: null,
+      auditAction: "login_password_change_required",
     });
-  } catch (error) {
-    console.error("Login audit failed", error);
   }
+
+  if (!mfaRequired) {
+    return createSessionResponse(request, db, identity, {
+      mfaVerified: false,
+      mfaMethod: null,
+    });
+  }
+
+  // Admin/MIS accounts never receive a full application session before MFA.
+  // The opaque, short-lived challenge is bound to the client IP and stored by
+  // hash only.
+  if (!mfaEncryptionKey) {
+    return json(
+      { error: "MFA_CONFIGURATION_REQUIRED", message: "MFA 尚未完成系統金鑰設定，請聯絡系統管理員。" },
+      503,
+    );
+  }
+  const existingMfa = await db
+    .prepare(
+      `SELECT id, is_enabled AS isEnabled
+       FROM user_mfa_settings WHERE user_id = ? AND method = 'totp'`,
+    )
+    .bind(identity.id)
+    .first<{ id: string; isEnabled: number }>();
+  const purpose = existingMfa?.isEnabled ? "verify" : "enroll";
+  const challenge = await createMfaChallenge(request, db, identity, portal, purpose);
+
+  if (purpose === "enroll") {
+    const enrollment = await prepareMfaEnrollment(db, identity, mfaEncryptionKey);
+    await audit(db, identity, "mfa_enroll_started", "mfa", identity.id);
+    return json(
+      {
+        ok: true,
+        mfaRequired: true,
+        mfaEnrollmentRequired: true,
+        challengeToken: challenge.token,
+        challengeExpiresAt: challenge.expiresAt,
+        otpAuthUri: enrollment.otpAuthUri,
+        manualSecret: enrollment.secret,
+        user: {
+          displayName: identity.displayName,
+          username: identity.username,
+          roleCode: identity.roleCode,
+        },
+        message: "請完成驗證器註冊後再進入系統。",
+      },
+      202,
+    );
+  }
+
   return json(
-    { ok: true, user: identity, message: `歡迎登入，${identity.displayName}。` },
-    200,
-    { "set-cookie": sessionCookie(request, token) },
+    {
+      ok: true,
+      mfaRequired: true,
+      mfaEnrollmentRequired: false,
+      challengeToken: challenge.token,
+      challengeExpiresAt: challenge.expiresAt,
+      user: {
+        displayName: identity.displayName,
+        username: identity.username,
+        roleCode: identity.roleCode,
+      },
+      message: "請輸入驗證器中的 6 位數驗證碼。",
+    },
+    202,
   );
+}
+
+export async function createMfaVerifiedSession(
+  request: Request,
+  db: D1Database,
+  identity: Identity,
+  method: "totp" | "recovery",
+) {
+  return createSessionResponse(request, db, identity, {
+    mfaVerified: true,
+    mfaMethod: method,
+    auditAction: "login_mfa_verified",
+  });
 }
 
 export async function handleLoginRequest(
   request: Request,
   db: D1Database,
   allowDemoAccounts = false,
+  mfaEncryptionKey?: string,
 ) {
   try {
-    return await handleLoginCore(request, db, allowDemoAccounts);
+    return await handleLoginCore(request, db, allowDemoAccounts, mfaEncryptionKey);
   } catch (error) {
     console.error("Login initialization failed", error);
     const diagnosticCode =
-      error instanceof Error && /^AUTH_[A-Z_]+$/.test(error.message)
+      error instanceof Error && /^(?:AUTH|MFA)_[A-Z_]+$/.test(error.message)
         ? error.message
         : "AUTH_UNKNOWN";
     return json(
@@ -718,7 +858,7 @@ export async function handleLogoutRequest(request: Request, db: D1Database) {
 
 export async function handleChangePasswordRequest(request: Request, db: D1Database) {
   if (request.method !== "POST") return json({ message: "不支援此操作。" }, 405);
-  const identityResult = await requireIdentity(request, db, { allowPasswordChange: true });
+  const identityResult = await requireIdentity(request, db, { allowPasswordChange: true, allowMfaPending: true });
   if (!identityResult.identity) return identityResult.response!;
   let payload: Record<string, unknown>;
   try {

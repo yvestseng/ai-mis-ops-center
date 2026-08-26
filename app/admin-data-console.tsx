@@ -26,6 +26,9 @@ export type SessionUser = {
   roleName: string;
   permissions: string[];
   mustChangePassword?: boolean;
+  mfaVerified?: boolean;
+  mfaVerifiedAt?: string | null;
+  mfaMethod?: string | null;
 };
 
 type ApiItem = Record<string, string | number | boolean | null>;
@@ -197,6 +200,22 @@ export function RbacConsole() {
       setUpdatingUserId(null);
     }
   }
+  async function resetMfa(user: ApiItem) {
+    const id = String(user.id);
+    const name = String(user.displayName || user.username || user.email);
+    if (!window.confirm(`確定要重設「${name}」的 MFA 嗎？\n\n既有 Session 與備援碼會立即失效，下次登入必須重新註冊驗證器。`)) return;
+    setUpdatingUserId(id);
+    try {
+      const result = await api(`/api/admin/users/${id}/mfa-reset`, { method: "POST" });
+      await load();
+      flash(result.message || "MFA 已重設");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "MFA 重設失敗");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   async function toggleUserStatus(user: ApiItem) {
     const id = String(user.id);
     const isEnabled = user.status === "active";
@@ -403,6 +422,7 @@ export function RbacConsole() {
                 <th>部門</th>
                 <th>角色</th>
                 <th>密碼狀態</th>
+                <th>MFA</th>
                 <th>狀態</th>
                 <th>最近登入</th>
                 <th>操作</th>
@@ -451,6 +471,15 @@ export function RbacConsole() {
                       </span>
                     </td>
                     <td>
+                      {user.roleCode === "admin" || user.roleCode === "operator" ? (
+                        <span className={`state-pill ${user.mfaEnabled ? "good" : ""}`}>
+                          {user.mfaEnabled ? "TOTP 已啟用" : "待註冊"}
+                        </span>
+                      ) : (
+                        <span className="sso-pill">未強制</span>
+                      )}
+                    </td>
+                    <td>
                       <span className={`state-pill ${isEnabled ? "good" : ""}`}>
                         {isEnabled ? "已啟用" : "已停用"}
                       </span>
@@ -477,6 +506,16 @@ export function RbacConsole() {
                               ? "Disable"
                               : "Enable"}
                         </button>
+                        {(user.roleCode === "admin" || user.roleCode === "operator") && user.mfaEnabled ? (
+                          <button
+                            disabled={isUpdating}
+                            aria-label="重設 MFA"
+                            title="重設 MFA"
+                            onClick={() => void resetMfa(user)}
+                          >
+                            MFA
+                          </button>
+                        ) : null}
                         <button
                           disabled={isUpdating}
                           aria-label="重設密碼"

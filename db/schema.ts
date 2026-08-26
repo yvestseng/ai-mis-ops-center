@@ -131,6 +131,9 @@ export const authSessions = sqliteTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
     revokedAt: text("revoked_at"),
+    mfaVerified: integer("mfa_verified", { mode: "boolean" }).default(false).notNull(),
+    mfaVerifiedAt: text("mfa_verified_at"),
+    mfaMethod: text("mfa_method"),
   },
   (table) => [
     index("auth_sessions_user_expires_idx").on(
@@ -140,6 +143,70 @@ export const authSessions = sqliteTable(
     uniqueIndex("auth_sessions_token_hash_uq").on(
       table.tokenHash,
     ),
+  ],
+);
+
+export const userMfaSettings = sqliteTable(
+  "user_mfa_settings",
+  {
+    id: text().primaryKey().notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => appUsers.id, { onDelete: "cascade" }),
+    method: text().default("totp").notNull(),
+    secretCiphertext: text("secret_ciphertext").notNull(),
+    secretIv: text("secret_iv").notNull(),
+    secretVersion: integer("secret_version").default(1).notNull(),
+    isEnabled: integer("is_enabled", { mode: "boolean" }).default(false).notNull(),
+    verifiedAt: text("verified_at"),
+    lastTotpStep: integer("last_totp_step"),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_mfa_settings_user_uq").on(table.userId),
+    index("user_mfa_settings_enabled_idx").on(table.isEnabled),
+  ],
+);
+
+export const userMfaRecoveryCodes = sqliteTable(
+  "user_mfa_recovery_codes",
+  {
+    id: text().primaryKey().notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => appUsers.id, { onDelete: "cascade" }),
+    mfaSettingId: text("mfa_setting_id")
+      .notNull()
+      .references(() => userMfaSettings.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_mfa_recovery_codes_hash_uq").on(table.codeHash),
+    index("user_mfa_recovery_codes_user_used_idx").on(table.userId, table.usedAt),
+  ],
+);
+
+export const authMfaChallenges = sqliteTable(
+  "auth_mfa_challenges",
+  {
+    id: text().primaryKey().notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => appUsers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    portal: text().notNull(),
+    purpose: text().notNull(),
+    ipHash: text("ip_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    consumedAt: text("consumed_at"),
+    createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [
+    uniqueIndex("auth_mfa_challenges_token_uq").on(table.tokenHash),
+    index("auth_mfa_challenges_user_expires_idx").on(table.userId, table.expiresAt),
   ],
 );
 

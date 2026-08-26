@@ -13,10 +13,11 @@ const adminId = process.env.ADMIN_ID || "";
 const adminPassword = process.env.ADMIN_PASSWORD || "";
 const userId = process.env.USER_ID || "";
 const userPassword = process.env.USER_PASSWORD || "";
+const adminTotpCode = process.env.ADMIN_TOTP_CODE || "";
 
-if (!baseUrl || !adminId || !adminPassword || !userId || !userPassword) {
+if (!baseUrl || !adminId || !adminPassword || !userId || !userPassword || !adminTotpCode) {
   console.error(
-    "Missing BASE_URL, ADMIN_ID, ADMIN_PASSWORD, USER_ID or USER_PASSWORD. " +
+    "Missing BASE_URL, ADMIN_ID, ADMIN_PASSWORD, ADMIN_TOTP_CODE, USER_ID or USER_PASSWORD. " +
       "Secrets must be supplied via environment variables.",
   );
   process.exit(2);
@@ -57,7 +58,7 @@ async function expectStatus(name, path, expected, init = {}) {
   }
 }
 
-async function login(name, username, password, portal) {
+async function login(name, username, password, portal, totpCode = "") {
   try {
     const response = await request("/api/auth/login", {
       method: "POST",
@@ -67,14 +68,37 @@ async function login(name, username, password, portal) {
       },
       body: JSON.stringify({ username, password, portal }),
     });
-    const body = await response.text();
+    const payload = await response.json().catch(() => ({}));
+
+    if (response.status === 202 && payload?.mfaRequired) {
+      if (payload?.mfaEnrollmentRequired) {
+        record(name, false, "Admin MFA 尚未完成註冊；Production Smoke 不會自動旋轉 MFA Secret");
+        return { response, cookie: "", body: JSON.stringify(payload) };
+      }
+      if (!totpCode || !payload?.challengeToken) {
+        record(name, false, "MFA challenge received but ADMIN_TOTP_CODE/challenge is missing");
+        return { response, cookie: "", body: JSON.stringify(payload) };
+      }
+      const verify = await request("/api/auth/mfa/verify", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({ challengeToken: payload.challengeToken, code: totpCode }),
+      });
+      const verifyBody = await verify.text();
+      const cookie = sessionCookie(verify);
+      const ok = verify.ok && Boolean(cookie);
+      record(name, ok, `HTTP ${verify.status}, MFA ${ok ? "verified" : "failed"}${cookie ? ", session cookie received" : ""}`);
+      if (!ok) console.error(verifyBody.slice(0, 500));
+      return { response: verify, cookie, body: verifyBody };
+    }
+
+    const body = JSON.stringify(payload);
     const cookie = sessionCookie(response);
     const ok = response.ok && Boolean(cookie);
-    record(
-      name,
-      ok,
-      `HTTP ${response.status}${cookie ? ", session cookie received" : ", no session cookie"}`,
-    );
+    record(name, ok, `HTTP ${response.status}${cookie ? ", session cookie received" : ", no session cookie"}`);
     if (!ok) console.error(body.slice(0, 500));
     return { response, cookie, body };
   } catch (error) {
@@ -101,7 +125,7 @@ async function expectRole(name, cookie, expectedRole) {
 await expectStatus("Public user login page", "/user/login", 200);
 await expectStatus("Public admin login page", "/admin/login", 200);
 
-const admin = await login("Admin login via admin portal", adminId, adminPassword, "admin");
+const admin = await login("Admin login + TOTP MFA via admin portal", adminId, adminPassword, "admin", adminTotpCode);
 const user = await login("User login via user portal", userId, userPassword, "user");
 
 await expectStatus(

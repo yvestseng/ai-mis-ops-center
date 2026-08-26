@@ -18,16 +18,21 @@ import { handleSupportTeamRequest } from "./support-teams";
 import { handlePriorityRuleRequest } from "./priority-rules";
 import { handleGovernanceRequest } from "./governance";
 import {
+  audit,
+  createMfaVerifiedSession,
   handleChangePasswordRequest,
   handleLoginRequest,
   handleLogoutRequest,
+  requirePermission,
 } from "./auth";
+import { handleMfaVerifyRequest, resetMfaForUser } from "./mfa";
 import { securityHeaders, validateApiRequest } from "./security";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   AUTH_ALLOW_DEMO?: string;
+  MFA_ENCRYPTION_KEY?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -150,7 +155,49 @@ const worker = {
 
       if (url.pathname === "/api/auth/login") {
         return respond(
-          handleLoginRequest(request, env.DB, env.AUTH_ALLOW_DEMO === "true"),
+          handleLoginRequest(
+            request,
+            env.DB,
+            env.AUTH_ALLOW_DEMO === "true",
+            env.MFA_ENCRYPTION_KEY,
+          ),
+        );
+      }
+
+
+      if (url.pathname === "/api/auth/mfa/verify") {
+        return respond(
+          handleMfaVerifyRequest(
+            request,
+            env.DB,
+            env.MFA_ENCRYPTION_KEY,
+            (identity, method) =>
+              createMfaVerifiedSession(request, env.DB, identity, method),
+            (identity, action, entityType, entityId, details) =>
+              audit(env.DB, identity, action, entityType, entityId, details),
+          ),
+        );
+      }
+
+      const mfaResetMatch = url.pathname.match(
+        /^\/api\/admin\/users\/([^/]+)\/mfa-reset$/,
+      );
+      if (mfaResetMatch) {
+        if (request.method !== "POST") {
+          return respond(
+            Response.json({ message: "不支援此操作。" }, { status: 405 }),
+          );
+        }
+        const auth = await requirePermission(request, env.DB, "rbac.manage");
+        if (!auth.identity || auth.response) return respond(auth.response!);
+        return respond(
+          resetMfaForUser(
+            env.DB,
+            auth.identity,
+            mfaResetMatch[1],
+            (identity, action, entityType, entityId, details) =>
+              audit(env.DB, identity, action, entityType, entityId, details),
+          ),
         );
       }
 

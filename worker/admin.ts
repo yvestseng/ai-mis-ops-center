@@ -43,10 +43,13 @@ async function list(entity: Entity, db: D1Database) {
                    u.status, u.last_login_at AS lastLoginAt,
                    CASE WHEN u.password_hash IS NULL THEN 0 ELSE 1 END AS hasPassword,
                    u.must_change_password AS mustChangePassword,
-                   u.role_id AS roleId, r.name AS roleName, r.code AS roleCode
+                   u.role_id AS roleId, r.name AS roleName, r.code AS roleCode,
+                   CASE WHEN mfa.is_enabled = 1 THEN 1 ELSE 0 END AS mfaEnabled,
+                   mfa.verified_at AS mfaVerifiedAt
             FROM app_users u
             JOIN roles r ON r.id = u.role_id
             LEFT JOIN support_teams st ON st.id = u.team_id
+            LEFT JOIN user_mfa_settings mfa ON mfa.user_id = u.id
             ORDER BY u.status, u.display_name`,
     roles: `SELECT id, code, name, permissions, is_system AS isSystem,
                    created_at AS createdAt, updated_at AS updatedAt

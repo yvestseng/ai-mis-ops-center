@@ -5620,3 +5620,43 @@ header > div:first-child p {
   background: #f9fafb;
   border: 1px solid #d0d5dd;
 }
+
+
+/* v0.6.1 TOTP MFA security hardening */
+.mfa-qr {
+  width: min(240px, 75vw);
+  height: auto;
+  margin: 0 auto;
+  padding: 10px;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+.mfa-secret {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+}
+.mfa-secret code {
+  overflow-wrap: anywhere;
+  letter-spacing: .08em;
+  font-weight: 700;
+}
+.mfa-recovery-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mfa-recovery-list code {
+  padding: 9px 10px;
+  text-align: center;
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.05);
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+@media (max-width: 640px) {
+  .mfa-recovery-list { grid-template-columns: 1fr; }
+}
