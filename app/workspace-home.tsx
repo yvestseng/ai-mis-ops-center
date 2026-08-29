@@ -1288,6 +1288,27 @@ type SurveyStatsState = Record<SurveyType, SurveyMetric> & {
   pendingFollowups: number;
 };
 
+
+type ServiceFeedbackRecord = {
+  id: string; ticketNumber: string; ticketTitle: string; evaluatorName: string; engineerName: string;
+  responseScore: number | null; expertiseScore: number | null; communicationScore: number | null;
+  resolvedStatus: string; overallScore: number; comment?: string | null; needsFollowup: number | boolean;
+  submittedAt: string; ticketStatus: string; priority: string;
+};
+
+type ServiceFeedbackSummary = {
+  responseCount: number; averageScore: number; averageResponseScore: number; averageExpertiseScore: number;
+  averageCommunicationScore: number; resolvedCount: number; unresolvedCount: number; lowScoreCount: number;
+  resolvedRate: number; unresolvedRate: number; weekAverageScore: number; monthAverageScore: number;
+};
+
+type EngineerFeedbackSummary = {
+  engineerName: string; responseCount: number; averageScore: number; averageResponseScore: number;
+  averageExpertiseScore: number; averageCommunicationScore: number; unresolvedCount: number; lowScoreCount: number;
+};
+
+type ServiceFeedbackFollowup = ServiceFeedbackRecord & { followupId: string; reason: string; followupStatus: string; };
+
 function GovernanceConsole({
   onOpen,
   onEmailTicket,
@@ -1344,7 +1365,6 @@ function GovernanceConsole({
     engineer: "",
     comment: "說明清楚，問題已完整排除。",
   });
-  const [servicePersonLoading, setServicePersonLoading] = useState(false);
   const loadSlaPolicies = useCallback(async () => {
     if (!canManageGovernance) return;
     try {
@@ -1474,6 +1494,16 @@ function GovernanceConsole({
     },
     pendingFollowups: 0,
   });
+  const [serviceView, setServiceView] = useState<"dashboard" | "records" | "followups">("dashboard");
+  const [serviceSummary, setServiceSummary] = useState<ServiceFeedbackSummary | null>(null);
+  const [engineerSummaries, setEngineerSummaries] = useState<EngineerFeedbackSummary[]>([]);
+  const [serviceRecords, setServiceRecords] = useState<ServiceFeedbackRecord[]>([]);
+  const [serviceFollowups, setServiceFollowups] = useState<ServiceFeedbackFollowup[]>([]);
+  const [serviceDataLoading, setServiceDataLoading] = useState(false);
+  const [serviceDataError, setServiceDataError] = useState("");
+  const [serviceFilters, setServiceFilters] = useState({ from: "", to: "", engineer: "", score: "", resolved: "", priority: "" });
+  const [servicePage, setServicePage] = useState(1);
+  const [serviceTotalPages, setServiceTotalPages] = useState(1);
   const flash = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2300);
@@ -1542,46 +1572,6 @@ function GovernanceConsole({
     };
   }, []);
 
-  const loadServicePerson = async () => {
-    const ticketReference = itSurvey.ticketReference.trim().toUpperCase();
-    if (!ticketReference) {
-      setItSurvey((current) => ({ ...current, engineer: "" }));
-      return;
-    }
-    setServicePersonLoading(true);
-    try {
-      const response = await fetch(
-        `/api/surveys?ticketReference=${encodeURIComponent(ticketReference)}`,
-        {
-          cache: "no-store",
-        },
-      );
-      const text = await response.text();
-      let result: { message?: string; engineerName?: string } = {};
-      try {
-        result = JSON.parse(text);
-      } catch {
-        flash(`工單查詢回傳異常（HTTP ${response.status}）`);
-        return;
-      }
-      if (!response.ok) {
-        setItSurvey((current) => ({ ...current, engineer: "" }));
-        flash(result.message || "無法取得此工單的實際服務人員");
-        return;
-      }
-      setItSurvey((current) => ({
-        ...current,
-        ticketReference,
-        engineer: result.engineerName || "",
-      }));
-    } catch {
-      setItSurvey((current) => ({ ...current, engineer: "" }));
-      flash("無法連線查詢工單服務人員");
-    } finally {
-      setServicePersonLoading(false);
-    }
-  };
-
   const submitSurvey = async (surveyType: "system_usage" | "it_service") => {
     if (submittingSurvey) return;
     if (surveyType === "system_usage" && systemSurveySubmitted) {
@@ -1645,6 +1635,46 @@ function GovernanceConsole({
       setSubmittingSurvey(null);
     }
   };
+  const loadServiceFeedbackAdmin = useCallback(async () => {
+    if (!canManageGovernance || tab !== "IT 人員服務調查") return;
+    setServiceDataLoading(true);
+    setServiceDataError("");
+    try {
+      if (serviceView === "dashboard") {
+        const response = await fetch("/api/surveys?view=summary", { credentials: "include", cache: "no-store" });
+        const result = (await response.json()) as { summary?: ServiceFeedbackSummary; engineers?: EngineerFeedbackSummary[]; message?: string };
+        if (!response.ok) throw new Error(result.message || "服務品質統計讀取失敗");
+        setServiceSummary(result.summary || null);
+        setEngineerSummaries(result.engineers || []);
+      } else if (serviceView === "records") {
+        const query = new URLSearchParams({ view: "records", page: String(servicePage), pageSize: "20" });
+        for (const [key, value] of Object.entries(serviceFilters)) if (value) query.set(key, value);
+        const response = await fetch(`/api/surveys?${query.toString()}`, { credentials: "include", cache: "no-store" });
+        const result = (await response.json()) as { data?: ServiceFeedbackRecord[]; pagination?: { totalPages?: number }; message?: string };
+        if (!response.ok) throw new Error(result.message || "服務調查紀錄讀取失敗");
+        setServiceRecords(result.data || []);
+        setServiceTotalPages(Math.max(1, Number(result.pagination?.totalPages || 1)));
+      } else {
+        const query = new URLSearchParams({ view: "followups", page: String(servicePage), pageSize: "20" });
+        const response = await fetch(`/api/surveys?${query.toString()}`, { credentials: "include", cache: "no-store" });
+        const result = (await response.json()) as { data?: ServiceFeedbackFollowup[]; pagination?: { totalPages?: number }; message?: string };
+        if (!response.ok) throw new Error(result.message || "改善追蹤讀取失敗");
+        setServiceFollowups(result.data || []);
+        setServiceTotalPages(Math.max(1, Number(result.pagination?.totalPages || 1)));
+      }
+    } catch (error) {
+      setServiceDataError(error instanceof Error ? error.message : "服務品質資料讀取失敗");
+    } finally {
+      setServiceDataLoading(false);
+    }
+  }, [canManageGovernance, serviceFilters, servicePage, serviceView, tab]);
+
+  useEffect(() => {
+    if (tab !== "IT 人員服務調查") return;
+    const timer = window.setTimeout(() => void loadServiceFeedbackAdmin(), 0);
+    return () => window.clearTimeout(timer);
+  }, [tab, loadServiceFeedbackAdmin]);
+
   const toggleGovernanceTicket = (id: string) => setSelectedGovernanceTickets((current) =>
     current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
   );
@@ -2055,149 +2085,65 @@ function GovernanceConsole({
         </div>
       )}
       {tab === "IT 人員服務調查" && (
-        <div className="survey-dashboard">
-          <div className="module-summary">
-            <article className="card">
-              <span>IT 人員服務滿意度</span>
-              <b>
-                {surveyStats.it_service.averageScore
-                  ? `${surveyStats.it_service.averageScore} / 5`
-                  : "尚無資料"}
-              </b>
-              <small>D1 即時彙整</small>
-            </article>
-            <article className="card">
-              <span>有效服務回饋</span>
-              <b>{surveyStats.it_service.responseCount}</b>
-              <small>依工單編號去除重複</small>
-            </article>
-            <article className="card">
-              <span>低分待追蹤</span>
-              <b>{surveyStats.pendingFollowups}</b>
-              <small>自動建立改善事項</small>
-            </article>
+        <div className="survey-dashboard service-feedback-admin">
+          <div className="service-feedback-tabs card">
+            <button className={serviceView === "dashboard" ? "active" : ""} onClick={() => { setServiceView("dashboard"); setServicePage(1); }}>服務品質 Dashboard</button>
+            <button className={serviceView === "records" ? "active" : ""} onClick={() => { setServiceView("records"); setServicePage(1); }}>服務調查紀錄</button>
+            <button className={serviceView === "followups" ? "active" : ""} onClick={() => { setServiceView("followups"); setServicePage(1); }}>低分改善追蹤</button>
           </div>
-          <div className="card survey-form">
-            <div className="survey-title">
-              <div>
-                <span className="eyebrow">IT SERVICE QUALITY</span>
-                <h3>IT 人員服務調查</h3>
-                <p>
-                  針對資訊人員的回應速度、專業能力、溝通品質與解決結果進行評價。
-                </p>
+          {serviceDataError && <p className="form-error" role="alert">{serviceDataError}</p>}
+          {serviceView === "dashboard" && (
+            <>
+              <div className="module-summary service-kpis">
+                <article className="card"><span>已完成評分</span><b>{serviceSummary?.responseCount ?? 0}</b><small>正式 Service Feedback</small></article>
+                <article className="card"><span>平均總分</span><b>{serviceSummary?.averageScore ? `${serviceSummary.averageScore} / 5` : "尚無資料"}</b><small>三項服務指標平均</small></article>
+                <article className="card"><span>已解決比例</span><b>{serviceSummary?.resolvedRate ?? 0}%</b><small>使用者回報完全解決</small></article>
+                <article className="card"><span>低分待追蹤</span><b>{serviceSummary?.lowScoreCount ?? 0}</b><small>任一項低於 3 分或未完全解決</small></article>
               </div>
-              <span className="survey-audience service">結案回饋</span>
+              <div className="module-summary service-kpis secondary-kpis">
+                <article className="card"><span>回應速度</span><b>{serviceSummary?.averageResponseScore ?? 0}</b><small>/ 5</small></article>
+                <article className="card"><span>專業度</span><b>{serviceSummary?.averageExpertiseScore ?? 0}</b><small>/ 5</small></article>
+                <article className="card"><span>溝通品質</span><b>{serviceSummary?.averageCommunicationScore ?? 0}</b><small>/ 5</small></article>
+                <article className="card"><span>本週 / 本月</span><b>{serviceSummary?.weekAverageScore ?? 0} / {serviceSummary?.monthAverageScore ?? 0}</b><small>平均總分</small></article>
+              </div>
+              <div className="card service-feedback-table-card">
+                <div className="card-head"><div><h3>IT 人員服務品質</h3><p>直接由既有 Service Feedback 即時彙整，不建立重複資料。</p></div></div>
+                <div className="service-feedback-table-wrap"><table className="service-feedback-table"><thead><tr><th>服務人員</th><th>評分數</th><th>平均分</th><th>回應</th><th>專業</th><th>溝通</th><th>未解決</th><th>低分追蹤</th></tr></thead><tbody>
+                  {engineerSummaries.map((row) => <tr key={row.engineerName}><td>{row.engineerName}</td><td>{row.responseCount}</td><td>{row.averageScore}</td><td>{row.averageResponseScore}</td><td>{row.averageExpertiseScore}</td><td>{row.averageCommunicationScore}</td><td>{row.unresolvedCount}</td><td>{row.lowScoreCount}</td></tr>)}
+                  {!serviceDataLoading && engineerSummaries.length === 0 && <tr><td colSpan={8} className="empty-state">目前尚無 IT 服務評分資料。</td></tr>}
+                </tbody></table></div>
+              </div>
+            </>
+          )}
+          {serviceView === "records" && (
+            <div className="card service-feedback-table-card">
+              <div className="card-head"><div><h3>服務調查紀錄</h3><p>與使用者工單結案 Service Feedback 共用同一份 D1 Source of Truth。</p></div><button className="secondary" onClick={() => void loadServiceFeedbackAdmin()}>重新整理</button></div>
+              <div className="service-feedback-filters">
+                <label>開始日期<input type="date" value={serviceFilters.from} onChange={(e) => { setServiceFilters(v => ({...v, from:e.target.value})); setServicePage(1); }} /></label>
+                <label>結束日期<input type="date" value={serviceFilters.to} onChange={(e) => { setServiceFilters(v => ({...v, to:e.target.value})); setServicePage(1); }} /></label>
+                <label>服務人員<input value={serviceFilters.engineer} onChange={(e) => { setServiceFilters(v => ({...v, engineer:e.target.value})); setServicePage(1); }} placeholder="姓名" /></label>
+                <label>分數<select value={serviceFilters.score} onChange={(e) => { setServiceFilters(v => ({...v, score:e.target.value})); setServicePage(1); }}><option value="">全部</option><option value="low">低於 3 分</option><option value="5">5 分</option><option value="4">4 分</option><option value="3">3 分</option><option value="2">2 分</option><option value="1">1 分</option></select></label>
+                <label>解決狀態<select value={serviceFilters.resolved} onChange={(e) => { setServiceFilters(v => ({...v, resolved:e.target.value})); setServicePage(1); }}><option value="">全部</option><option>是</option><option>部分解決</option><option>否</option></select></label>
+                <label>優先級<select value={serviceFilters.priority} onChange={(e) => { setServiceFilters(v => ({...v, priority:e.target.value})); setServicePage(1); }}><option value="">全部</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></label>
+              </div>
+              <div className="service-feedback-table-wrap"><table className="service-feedback-table"><thead><tr><th>工單</th><th>評分人</th><th>服務人員</th><th>回應</th><th>專業</th><th>溝通</th><th>平均</th><th>解決</th><th>意見</th><th>狀態</th><th>評分時間</th></tr></thead><tbody>
+                {serviceRecords.map((row) => <tr key={row.id}><td><button className="link-button" onClick={() => window.location.assign(`/admin?ticket=${encodeURIComponent(row.ticketNumber)}`)}>{row.ticketNumber}</button><small>{row.ticketTitle}</small></td><td>{row.evaluatorName}</td><td>{row.engineerName}</td><td>{row.responseScore ?? "-"}</td><td>{row.expertiseScore ?? "-"}</td><td>{row.communicationScore ?? "-"}</td><td>{row.overallScore}</td><td>{row.resolvedStatus}</td><td className="feedback-comment">{row.comment || "-"}</td><td>{row.priority}・{row.ticketStatus}</td><td>{new Date(row.submittedAt).toLocaleString("zh-TW")}</td></tr>)}
+                {!serviceDataLoading && serviceRecords.length === 0 && <tr><td colSpan={11} className="empty-state">沒有符合條件的服務調查紀錄。</td></tr>}
+              </tbody></table></div>
+              <div className="service-pagination"><button className="secondary" disabled={servicePage <= 1} onClick={() => setServicePage(p => p - 1)}>上一頁</button><span>{servicePage} / {serviceTotalPages}</span><button className="secondary" disabled={servicePage >= serviceTotalPages} onClick={() => setServicePage(p => p + 1)}>下一頁</button></div>
             </div>
-            <div className="survey-question-grid">
-              <label>
-                工單編號
-                <input
-                  required
-                  value={itSurvey.ticketReference}
-                  onChange={(e) =>
-                    setItSurvey({
-                      ...itSurvey,
-                      ticketReference: e.target.value,
-                      engineer: "",
-                    })
-                  }
-                  onBlur={() => void loadServicePerson()}
-                  placeholder="例如 INC-20260726-001"
-                />
-              </label>
-              <label>
-                服務人員
-                <input
-                  value={servicePersonLoading ? "正在查詢…" : itSurvey.engineer}
-                  readOnly
-                  placeholder="輸入工單編號後自動帶入實際處理人員"
-                />
-              </label>
-              <label>
-                回應與處理速度
-                <select
-                  value={itSurvey.response}
-                  onChange={(e) =>
-                    setItSurvey({ ...itSurvey, response: e.target.value })
-                  }
-                >
-                  {["5", "4", "3", "2", "1"].map((x) => (
-                    <option key={x} value={x}>
-                      {x} 分
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                問題解決專業度
-                <select
-                  value={itSurvey.expertise}
-                  onChange={(e) =>
-                    setItSurvey({ ...itSurvey, expertise: e.target.value })
-                  }
-                >
-                  {["5", "4", "3", "2", "1"].map((x) => (
-                    <option key={x} value={x}>
-                      {x} 分
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                說明與溝通品質
-                <select
-                  value={itSurvey.communication}
-                  onChange={(e) =>
-                    setItSurvey({ ...itSurvey, communication: e.target.value })
-                  }
-                >
-                  {["5", "4", "3", "2", "1"].map((x) => (
-                    <option key={x} value={x}>
-                      {x} 分
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                本次問題是否已解決？
-                <select
-                  value={itSurvey.resolved}
-                  onChange={(e) =>
-                    setItSurvey({ ...itSurvey, resolved: e.target.value })
-                  }
-                >
-                  <option>是</option>
-                  <option>部分解決</option>
-                  <option>否</option>
-                </select>
-              </label>
+          )}
+          {serviceView === "followups" && (
+            <div className="card service-feedback-table-card">
+              <div className="card-head"><div><h3>低分改善追蹤</h3><p>任一服務評分低於 3 分，或問題未完全解決，自動列入 pending 改善事項。</p></div><span className="queue-count">{serviceFollowups.length} 件顯示中</span></div>
+              <div className="service-feedback-table-wrap"><table className="service-feedback-table"><thead><tr><th>工單</th><th>服務人員</th><th>評分</th><th>解決</th><th>改善原因</th><th>使用者意見</th><th>優先級 / 狀態</th><th>評分日期</th></tr></thead><tbody>
+                {serviceFollowups.map((row) => <tr key={row.followupId}><td>{row.ticketNumber}<small>{row.ticketTitle}</small></td><td>{row.engineerName}</td><td>{row.overallScore}</td><td>{row.resolvedStatus}</td><td>{row.reason}</td><td className="feedback-comment">{row.comment || "-"}</td><td>{row.priority}・{row.ticketStatus}</td><td>{new Date(row.submittedAt).toLocaleString("zh-TW")}</td></tr>)}
+                {!serviceDataLoading && serviceFollowups.length === 0 && <tr><td colSpan={8} className="empty-state">目前沒有 pending 的低分或未解決改善事項。</td></tr>}
+              </tbody></table></div>
+              <div className="service-pagination"><button className="secondary" disabled={servicePage <= 1} onClick={() => setServicePage(p => p - 1)}>上一頁</button><span>{servicePage} / {serviceTotalPages}</span><button className="secondary" disabled={servicePage >= serviceTotalPages} onClick={() => setServicePage(p => p + 1)}>下一頁</button></div>
             </div>
-            <label>
-              服務意見與改善建議
-              <textarea
-                value={itSurvey.comment}
-                onChange={(e) =>
-                  setItSurvey({ ...itSurvey, comment: e.target.value })
-                }
-              />
-            </label>
-            <div className="survey-actions">
-              <small>低於 3 分或尚未解決的回饋將自動列入改善追蹤。</small>
-              <button
-                className="primary"
-                disabled={
-                  submittingSurvey !== null ||
-                  servicePersonLoading ||
-                  !itSurvey.engineer
-                }
-                onClick={() => void submitSurvey("it_service")}
-              >
-                {submittingSurvey === "it_service"
-                  ? "正在儲存…"
-                  : "送出 IT 服務調查"}
-              </button>
-            </div>
-          </div>
+          )}
+          {serviceDataLoading && <p className="empty-state">正在讀取服務品質資料…</p>}
         </div>
       )}
       {toast && <div className="toast">✓ {toast}</div>}
