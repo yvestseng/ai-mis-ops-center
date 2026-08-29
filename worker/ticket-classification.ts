@@ -465,8 +465,21 @@ export function analyzeImpact(
         ),
     );
   const workforceWideScope = /所有使用者受影響/.test(text);
+
+  // A report may mention the company only to explicitly bound the incident,
+  // e.g. "採購所有同仁...但全公司其他單位沒有問題". In that form,
+  // "全公司" is negative evidence for broad impact and must not override the
+  // explicitly named department. This guard intentionally requires both a
+  // department scope and an unaffected-rest-of-company phrase so genuine
+  // company/site-wide outages remain P1.
+  const restOfCompanyUnaffected =
+    departmentScope &&
+    /(?:但|不過|然而|可是|僅|只有)?\s*(?:全公司|公司)?\s*(?:其他|其餘|別的)\s*(?:單位|部門|部門單位|團隊|同仁|使用者)(?:與[^，。；;]{0,20})?\s*(?:都|皆|仍|均)?\s*(?:沒有問題|無問題|正常|可正常使用|沒有異常|未受影響|不受影響)/u.test(
+      text,
+    );
   const broadOrganizationScope =
-    /全公司|全廠|主要據點|大量使用者受影響/.test(text);
+    /全公司|全廠|主要據點|大量使用者受影響/.test(text) &&
+    !restOfCompanyUnaffected;
 
   const serviceState: ImpactAnalysis["serviceState"] = outage
     ? "outage"
